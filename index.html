@@ -61,6 +61,7 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}.hidden{display:
         <div class="field"><label>Username</label><input id="loginAlias" autocomplete="username" required placeholder="admin or employee username"></div>
         <div class="field"><label>Password</label><input id="loginPassword" type="password" autocomplete="current-password" required></div>
         <button class="btn primary" type="submit">Sign in</button>
+        <button id="forgotPasswordBtn" class="btn ghost" type="button">Forgot password?</button>
       </form>
       <form id="signupForm" class="hidden">
         <div class="field"><label>Admin username</label><input id="signupAlias" autocomplete="username" required></div>
@@ -201,7 +202,7 @@ const money=n=>`BHD ${Number(n||0).toFixed(3)}`;
 const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 const cleanGun=o=>{if(!o||typeof o!=='object')return o;const out={};Object.keys(o).forEach(k=>{if(k!=='_'&&o[k]!==null&&typeof o[k]!=='object')out[k]=o[k]});return out};
 const readList=node=>new Promise(resolve=>{const rows=[];node.map().once((d,k)=>{if(d){rows.push({...cleanGun(d),id:d.id||k})}});setTimeout(()=>resolve(rows),900)});
-const state={mode:'guest',role:'customer',alias:'',vendorId:'',profile:{},products:[],branches:[],employees:[],orders:[],vendors:[],publicVendors:[],adminMessages:[],cart:[],posCart:[],customerLocation:null,currentVendor:null,maps:{},markers:[]};
+const state={mode:'guest',role:'customer',alias:'',vendorId:'',profile:{},products:[],branches:[],employees:[],orders:[],vendors:[],publicVendors:[],adminMessages:[],cart:[],posCart:[],customerLocation:null,currentVendor:null,maps:{},markers:[],tempAuth:false,mustChangePassword:false};
 try{localStorage.removeItem('omni_pos_peers');localStorage.removeItem('omni_pos_peers_version')}catch{}
 let gun=Gun({peers,localStorage:true,retry:Infinity});
 let user=gun.user();
@@ -229,8 +230,9 @@ setTimeout(()=>{if(!connectedRelays.size)setConnection(false,'No online relay co
 function syncPresence(){try{root.get('presence').get(sessionId).put({id:sessionId,mode:state.mode,role:state.role,alias:state.alias||'',vendorId:state.vendorId||'',customerId:localStorage.getItem('omni_customer_id')||'',view:document.querySelector('.view.active')?.id||'',online:true,updatedAt:Date.now()})}catch{}}
 setInterval(syncPresence,15000);
 
-function validAccount(meta){return meta&&meta.vendorId?{alias:meta.alias||'',role:meta.role||'employee',vendorId:meta.vendorId,employeeId:meta.employeeId||''}:null}
-function saveAccountLink(alias,meta){const row={alias,role:meta.role||'employee',vendorId:meta.vendorId,employeeId:meta.employeeId||'',updatedAt:Date.now()};root.get('accounts').get(alias).put(row);try{user.get('omniAccount').put(row)}catch{}return row}
+async function hashPassword(pass){const data=new TextEncoder().encode(`omni-pos:${pass}`),buf=await crypto.subtle.digest('SHA-256',data);return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('')}
+function validAccount(meta){return meta&&meta.vendorId?{alias:meta.alias||'',role:meta.role||'employee',vendorId:meta.vendorId,employeeId:meta.employeeId||'',tempPassHash:meta.tempPassHash||'',mustChangePassword:meta.mustChangePassword===true}:null}
+function saveAccountLink(alias,meta){const row={alias,role:meta.role||'employee',vendorId:meta.vendorId,employeeId:meta.employeeId||'',updatedAt:Date.now()};if(meta.tempPassHash)row.tempPassHash=meta.tempPassHash;if(meta.mustChangePassword===true)row.mustChangePassword=true;root.get('accounts').get(alias).put(row);try{user.get('omniAccount').put(row)}catch{}return row}
 function recoverAccountFromVendors(alias,cb){
   let found=null;
   root.get('vendors').map().once((d,k)=>{
@@ -260,6 +262,15 @@ function fetchAccount(alias,cb,tries=10){
     }catch{recoverAccountFromVendors(alias,cb)}
   },{wait:500});
 }
+function beginVendorSession(alias,meta,temp=false){state.alias=alias;state.role=meta.role||'employee';state.vendorId=meta.vendorId;state.tempAuth=temp;state.mustChangePassword=meta.mustChangePassword===true;showApp('vendor');if(state.mustChangePassword)setTimeout(()=>{goView('settings');toast('Use the temporary password as current password, then set your new password.','success')},500)}
+function tryTempLogin(alias,pass,cb,tries=4){
+  root.get('accounts').get(alias).once(async meta=>{
+    const linked=validAccount(meta);
+    if(linked&&linked.tempPassHash&&await hashPassword(pass)===linked.tempPassHash)return cb(linked);
+    if(tries>0)return setTimeout(()=>tryTempLogin(alias,pass,cb,tries-1),500);
+    cb(null);
+  },{wait:500});
+}
 
 // Restore session on reload (important inside a Bubble iframe where refreshes are common)
 user.recall({sessionStorage:true});
@@ -269,8 +280,7 @@ gun.on('auth',()=>{
   if(!alias||typeof alias!=='string')return;
   fetchAccount(alias,meta=>{
     if(!meta||state.alias)return;
-    state.alias=alias;state.role=meta.role||'employee';state.vendorId=meta.vendorId;
-    showApp('vendor');toast(`Welcome back, ${alias}`,'success');
+    beginVendorSession(alias,meta,false);toast(`Welcome back, ${alias}`,'success');
   });
 });
 
@@ -314,6 +324,15 @@ $('#sidebarScrim').onclick=closeSidebar;
 $('#loginTab').onclick=()=>{$('#loginTab').classList.add('active');$('#signupTab').classList.remove('active');$('#loginForm').classList.remove('hidden');$('#signupForm').classList.add('hidden')};
 $('#signupTab').onclick=()=>{$('#signupTab').classList.add('active');$('#loginTab').classList.remove('active');$('#signupForm').classList.remove('hidden');$('#loginForm').classList.add('hidden')};
 $('#guestBtn').onclick=()=>showApp('guest');
+$('#forgotPasswordBtn').onclick=()=>openModal('Forgot password',`<form id="forgotForm" class="form-grid"><div class="field full"><label>Username *</label><input id="forgotAlias" required value="${esc($('#loginAlias').value.trim().toLowerCase())}"></div><div class="field full"><label>Message to SuperAdmin</label><textarea id="forgotMessage" placeholder="Tell SuperAdmin which vendor account this is."></textarea></div><button class="btn primary full">Send request</button></form>`);
+document.addEventListener('submit',e=>{
+  if(e.target.id!=='forgotForm')return;
+  e.preventDefault();
+  const alias=$('#forgotAlias').value.trim().toLowerCase(),message=$('#forgotMessage').value.trim(),id=uid('reset');
+  if(!alias)return toast('Enter your username','error');
+  root.get('passwordResets').get(id).put({id,alias,message,status:'open',createdAt:Date.now(),updatedAt:Date.now()});
+  closeModal();toast('Password reset request sent to SuperAdmin','success');
+});
 $('#signupForm').onsubmit=e=>{
   e.preventDefault();manualAuth=true;
   const btn=e.target.querySelector('button[type="submit"]');btn.disabled=true;
@@ -339,12 +358,11 @@ $('#loginForm').onsubmit=e=>{
   const btn=e.target.querySelector('button[type="submit"]');btn.disabled=true;
   const alias=$('#loginAlias').value.trim().toLowerCase(),pass=$('#loginPassword').value;
   user.auth(alias,pass,ack=>{
-    if(ack.err){btn.disabled=false;return toast(ack.err,'error')}
+    if(ack.err)return tryTempLogin(alias,pass,meta=>{btn.disabled=false;if(!meta)return toast(ack.err,'error');beginVendorSession(alias,meta,true);toast('Signed in with temporary password','success')});
     fetchAccount(alias,meta=>{
       btn.disabled=false;
       if(!meta){manualAuth=false;try{user.leave()}catch{}return toast('Login worked, but no OMNI POS vendor role was found for this username. Create a vendor account or ask SuperAdmin to check the account link.','error')}
-      state.alias=alias;state.role=meta.role||'employee';state.vendorId=meta.vendorId;
-      showApp('vendor');
+      beginVendorSession(alias,meta,false);
     });
   });
 };
@@ -464,7 +482,7 @@ function openPosSale(){
 }
 
 function renderProfileForm(){const p=state.profile;const approval=p.suspended?'Suspended':(p.adminApproved?'Approved by SuperAdmin':'Awaiting SuperAdmin approval');$('#profileForm').innerHTML=`<div class="field full"><label>Public listing status</label><div class="connection"><span class="dot ${p.adminApproved&&!p.suspended?'online':''}"></span><span>${esc(approval)}</span></div></div><div class="field"><label>CR name *</label><input id="crName" required value="${esc(p.crName||'')}"></div><div class="field"><label>CR number *</label><input id="crNumber" required value="${esc(p.crNumber||'')}"></div><div class="field"><label>WhatsApp number</label><input id="whatsapp" value="${esc(p.whatsapp||'')}"></div><div class="field"><label>Benefit number / IBAN</label><input id="benefitNumber" value="${esc(p.benefitNumber||'')}"></div><div class="field full"><label>Business type</label><select id="businessType"><option>Restaurant</option><option>Cafeteria</option><option>Cold store</option><option>Bakery</option><option>Grocery</option><option>Other</option></select></div><div class="field"><label>Latitude *</label><input id="profileLat" required type="number" step="any" value="${p.lat||''}"></div><div class="field"><label>Longitude *</label><input id="profileLng" required type="number" step="any" value="${p.lng||''}"></div><button id="profileGps" type="button" class="btn ghost full">Use current GPS location</button><div class="field"><label>Logo</label><input id="profileLogo" type="file" accept="image/*">${p.logo?`<img class="receipt-preview" src="${p.logo}">`:''}</div><div class="field"><label>Shopfront image</label><input id="profileShopfront" type="file" accept="image/*">${p.shopfront?`<img class="receipt-preview" src="${p.shopfront}">`:''}</div><label class="switchline full"><input id="profileActive" type="checkbox" ${p.active?'checked':''}> Request public listing on the customer map</label><button class="btn primary full">Save vendor profile</button>`;$('#businessType').value=p.businessType||'Restaurant';$('#profileGps').onclick=()=>getLocation().then(x=>{$('#profileLat').value=x.lat;$('#profileLng').value=x.lng;toast('GPS captured','success')}).catch(e=>toast(e.message,'error'));$('#profileForm').onsubmit=async e=>{e.preventDefault();let logo=p.logo||'',shopfront=p.shopfront||'';try{if($('#profileLogo').files[0])logo=await imageToDataURL($('#profileLogo').files[0],420,.62);if($('#profileShopfront').files[0])shopfront=await imageToDataURL($('#profileShopfront').files[0],620,.64)}catch(err){return toast(err.message,'error')}const row={id:state.vendorId,ownerAlias:state.alias,crName:$('#crName').value.trim(),crNumber:$('#crNumber').value.trim(),whatsapp:$('#whatsapp').value.trim(),benefitNumber:$('#benefitNumber').value.trim(),businessType:$('#businessType').value,lat:Number($('#profileLat').value),lng:Number($('#profileLng').value),logo,shopfront,active:$('#profileActive').checked,updatedAt:Date.now()};vendorNode().put(row);toast('Vendor profile saved','success')}}
-$('#passwordForm').onsubmit=e=>{e.preventDefault();const old=$('#currentPassword').value,nu=$('#newPassword').value;user.auth(state.alias,old,ack=>{if(ack.err)return toast(ack.err,'error');$('#currentPassword').value='';$('#newPassword').value='';toast('Password changed successfully.','success')},{change:nu})};
+$('#passwordForm').onsubmit=async e=>{e.preventDefault();const old=$('#currentPassword').value,nu=$('#newPassword').value;if(state.tempAuth){const meta=await new Promise(res=>root.get('accounts').get(state.alias).once(res,{wait:500}));if(!meta?.tempPassHash||await hashPassword(old)!==meta.tempPassHash)return toast('Current temporary password is incorrect','error');root.get('accounts').get(state.alias).put({tempPassHash:await hashPassword(nu),mustChangePassword:false,updatedAt:Date.now()});state.mustChangePassword=false;$('#currentPassword').value='';$('#newPassword').value='';toast('Password changed successfully','success');return}user.auth(state.alias,old,ack=>{if(ack.err)return toast(ack.err,'error');$('#currentPassword').value='';$('#newPassword').value='';toast('Password changed successfully.','success')},{change:nu})};
 
 function loadAllVendors(){root.get('vendors').map().on((d,k)=>{if(!d)return;const row={...cleanGun(d),id:d.id||k};upsert(state.vendors,row,row.id);renderVendorMap();renderMarketplaceCards()});root.get('publicVendors').map().on((d,k)=>{if(!d)return;const row={...cleanGun(d),id:d.id||k};upsert(state.publicVendors,row,row.id);renderVendorMap();renderMarketplaceCards()})}
 setInterval(()=>{if(state.mode==='guest'){renderMarketplaceCards();renderCustomerMap()}else if(state.vendorId){renderDashboard();renderOrders();renderPos();renderVendorMap()}},2500);
