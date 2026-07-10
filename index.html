@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>OMNI SuperAdmin</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root{--bg:#071019;--panel:#101a24;--panel2:#142333;--line:#263747;--text:#f6f8fb;--muted:#91a4b8;--accent:#32d3a2;--blue:#5aa7ff;--warn:#ffbd5b;--danger:#ff647c;--ok:#30d982;--shadow:0 18px 50px rgba(0,0,0,.35)}
+*{box-sizing:border-box}html,body{height:100%}body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:hidden}
+button,input,textarea,select{font:inherit}button{cursor:pointer}.hidden{display:none!important}.muted{color:var(--muted)}
+.app{height:100%;display:grid;grid-template-columns:250px minmax(0,1fr)}.side{border-right:1px solid var(--line);background:#08131d;padding:18px;display:flex;flex-direction:column;gap:18px}.brand{display:flex;align-items:center;gap:10px;font-weight:900;letter-spacing:.08em}.mark{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--blue));display:grid;place-items:center;color:#041018}.nav{display:grid;gap:8px}.nav button{border:0;border-radius:12px;background:transparent;color:var(--muted);padding:12px;text-align:left;font-weight:800}.nav button.active,.nav button:hover{background:var(--panel2);color:#fff}.status{margin-top:auto;border:1px solid var(--line);border-radius:12px;padding:10px;color:var(--muted);font-size:12px}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--warn);margin-right:7px}.dot.online{background:var(--ok);box-shadow:0 0 12px var(--ok)}
+.main{min-width:0;height:100%;display:flex;flex-direction:column}.top{height:68px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:0 20px;background:rgba(7,16,25,.85)}.top h1{margin:0;font-size:20px}.content{flex:1;min-height:0;overflow:auto;padding:20px}.view{display:none}.view.active{display:block}.grid{display:grid;gap:14px}.cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:var(--shadow);overflow:hidden}.pad{padding:16px}.head{display:flex;align-items:center;gap:10px;margin-bottom:12px}.head h2,.head h3{margin:0}.spacer{flex:1}.metric .label{font-size:12px;color:var(--muted)}.metric .value{font-size:30px;font-weight:900;margin-top:6px}.btn{border:0;border-radius:10px;padding:9px 12px;background:var(--panel2);color:#fff;font-weight:800}.btn.primary{background:linear-gradient(135deg,var(--accent),var(--blue));color:#041018}.btn.warn{background:rgba(255,189,91,.16);color:#ffd28c;border:1px solid rgba(255,189,91,.3)}.btn.danger{background:rgba(255,100,124,.16);color:#ff9bad;border:1px solid rgba(255,100,124,.3)}.btn.small{padding:7px 9px;font-size:12px}.input,.field input,.field textarea{width:100%;border:1px solid var(--line);background:#09131d;color:#fff;border-radius:10px;padding:11px}.field{display:grid;gap:7px}.field label{font-size:12px;font-weight:800;color:var(--muted)}.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}.toolbar .input{flex:1;min-width:220px}
+.table-wrap{overflow:auto}.table{width:100%;border-collapse:collapse;min-width:900px}.table th,.table td{padding:12px;border-bottom:1px solid var(--line);text-align:left;font-size:13px;vertical-align:top}.table th{font-size:11px;text-transform:uppercase;color:var(--muted)}.pill{display:inline-flex;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:900}.pill.ok{background:rgba(48,217,130,.15);color:#8dffc0}.pill.warn{background:rgba(255,189,91,.15);color:#ffd28c}.pill.bad{background:rgba(255,100,124,.15);color:#ff9bad}
+.row{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:8px;padding:10px;background:#0b1621}.row img{width:48px;height:48px;border-radius:8px;object-fit:cover;background:#071019}.row .info{min-width:0;flex:1}.row h4{margin:0 0 4px}.row p{margin:0;color:var(--muted);font-size:12px}.chat-log{display:grid;gap:10px;max-height:55vh;overflow:auto;margin-bottom:12px}.msg{border:1px solid var(--line);border-radius:8px;padding:10px;background:#0b1621}.msg.superadmin{border-color:rgba(50,211,162,.4)}#map{height:520px;border-radius:8px;background:#101a24}.vendor-map-icon{width:40px;height:40px;border-radius:50%;overflow:hidden;border:3px solid #fff;background:linear-gradient(135deg,var(--accent),var(--blue));box-shadow:0 8px 24px rgba(0,0,0,.45);display:grid;place-items:center;color:#fff;font-weight:900}.vendor-map-icon img{width:100%;height:100%;object-fit:cover}.empty{padding:28px;text-align:center;color:var(--muted)}
+@media(max-width:900px){body{overflow:auto}.app{height:auto;min-height:100%;grid-template-columns:1fr}.side{position:static}.cols-4,.cols-3,.cols-2{grid-template-columns:1fr}.content{overflow:visible}.table{min-width:760px}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><div class="mark">S</div> OMNI ADMIN</div>
+    <nav class="nav" id="nav">
+      <button class="active" data-view="dashboard">Dashboard</button>
+      <button data-view="vendors">Vendors</button>
+      <button data-view="orders">Orders</button>
+      <button data-view="users">Online users</button>
+      <button data-view="chats">Vendor chat</button>
+      <button data-view="mapView">Map</button>
+    </nav>
+    <div class="status"><span id="connDot" class="dot"></span><span id="connText">Connecting to GUN</span></div>
+  </aside>
+  <main class="main">
+    <header class="top"><h1 id="title">Dashboard</h1><div class="spacer"></div><button id="refreshBtn" class="btn">Refresh</button></header>
+    <div class="content">
+      <section id="dashboard" class="view active">
+        <div class="grid cols-4" id="metrics"></div>
+        <div class="grid cols-2" style="margin-top:14px">
+          <div class="card pad"><div class="head"><h2>Pending vendors</h2></div><div id="pendingList" class="grid"></div></div>
+          <div class="card pad"><div class="head"><h2>Recent orders</h2></div><div id="recentOrders" class="grid"></div></div>
+        </div>
+      </section>
+      <section id="vendors" class="view">
+        <div class="toolbar"><input id="vendorSearch" class="input" placeholder="Search vendors..."><button id="showPending" class="btn">Pending</button><button id="showAllVendors" class="btn">All</button></div>
+        <div class="card pad"><div id="vendorTable"></div></div>
+      </section>
+      <section id="orders" class="view"><div class="card pad"><div id="orderTable"></div></div></section>
+      <section id="users" class="view"><div class="card pad"><div id="userTable"></div></div></section>
+      <section id="chats" class="view">
+        <div class="grid cols-2">
+          <div class="card pad"><div class="head"><h2>Vendors</h2></div><div id="chatVendors" class="grid"></div></div>
+          <div class="card pad"><div class="head"><h2 id="chatTitle">Select a vendor</h2></div><div id="chatLog" class="chat-log"></div><form id="chatForm" class="grid"><div class="field"><label>Message</label><textarea id="chatText" required></textarea></div><button class="btn primary">Send</button></form></div>
+        </div>
+      </section>
+      <section id="mapView" class="view"><div class="card pad"><div class="head"><h2>Approved public vendors</h2></div><div id="map"></div></div></section>
+    </div>
+  </main>
+</div>
+<script>
+(() => {
+'use strict';
+const APP_ROOT='omni-pos-v1';
+const peers=['https://relay.peer.ooo/gun'];
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+const money=n=>`BHD ${Number(n||0).toFixed(3)}`;
+const clean=o=>{if(!o||typeof o!=='object')return o;const out={};Object.keys(o).forEach(k=>{if(k!=='_'&&o[k]!==null&&typeof o[k]!=='object')out[k]=o[k]});return out};
+const uid=(p='id')=>`${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,9)}`;
+const state={vendors:[],publicVendors:[],orders:[],customers:[],presence:[],chats:[],messages:[],selectedVendor:'',vendorFilter:'all',backfilled:{},map:null,markers:[]};
+const gun=Gun({peers,localStorage:true,retry:Infinity});
+const root=gun.get(APP_ROOT);
+function upsert(arr,d,k){const i=arr.findIndex(x=>x.id===(d?.id||k));if(!d){if(i>=0)arr.splice(i,1);return}const row={...clean(d),id:d.id||k};if(i>=0)arr[i]=row;else arr.push(row)}
+const readList=node=>new Promise(resolve=>{const rows=[];node.map().once((d,k)=>{if(d)rows.push({...clean(d),id:d.id||k})});setTimeout(()=>resolve(rows),900)});
+function setConn(ok,text){$('#connDot').classList.toggle('online',ok);$('#connText').textContent=text}
+gun.on('hi',()=>setConn(true,'Connected to relay.peer.ooo/gun'));gun.on('bye',()=>setConn(false,'Reconnecting'));setConn(false,'Connecting to relay.peer.ooo/gun');
+L.Icon.Default.mergeOptions({iconRetinaUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',iconUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',shadowUrl:'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png'});
+function publicMirror(id){return state.publicVendors.find(x=>x.id===id)||{}}
+function approved(v){return v.adminApproved===true||publicMirror(v.id).adminApproved===true}
+function suspended(v){return v.suspended===true||publicMirror(v.id).suspended===true}
+function publicVendors(){const rows=state.publicVendors.length?state.publicVendors:state.vendors;return rows.filter(v=>v.active&&v.adminApproved===true&&v.suspended!==true&&v.lat&&v.lng)}
+function status(v){if(suspended(v))return '<span class="pill bad">Suspended</span>';if(approved(v))return '<span class="pill ok">Approved</span>';return '<span class="pill warn">Pending</span>'}
+function vendorIcon(v){const src=v.logo||v.shopfront||'';return L.divIcon({className:'',iconSize:[40,40],iconAnchor:[20,40],popupAnchor:[0,-36],html:`<div class="vendor-map-icon">${src?`<img src="${src}" alt="">`:esc((v.crName||'V')[0])}</div>`})}
+function render(){
+  renderMetrics();renderPending();renderOrders();renderVendors();renderUsers();renderChatVendors();renderMap();
+}
+function renderMetrics(){
+  const online=state.presence.filter(p=>Date.now()-Number(p.updatedAt||0)<45000).length;
+  const revenue=state.orders.filter(o=>o.status!=='cancelled').reduce((a,o)=>a+Number(o.total||0),0);
+  const cards=[['Vendors',state.vendors.length],['Pending',state.vendors.filter(v=>!approved(v)&&!suspended(v)).length],['Online',online],['Revenue',money(revenue)],['Orders',state.orders.length],['Approved',state.vendors.filter(v=>approved(v)&&!suspended(v)).length],['Suspended',state.vendors.filter(v=>suspended(v)).length],['Customers',state.customers.length]];
+  $('#metrics').innerHTML=cards.map(c=>`<div class="card pad metric"><div class="label">${c[0]}</div><div class="value">${c[1]}</div></div>`).join('');
+}
+function vendorCard(v){return `<div class="row"><img src="${v.logo||v.shopfront||''}" alt=""><div class="info"><h4>${esc(v.crName||'Unnamed vendor')}</h4><p>${esc(v.businessType||'Vendor')} · ${esc(v.ownerAlias||'')}</p><p>${status(v)} ${v.active?' requested public listing':''}</p></div><button class="btn small primary" data-approve="${v.id}">Allow public</button><button class="btn small" data-hide="${v.id}">Hide</button><button class="btn small danger" data-suspend="${v.id}">${v.suspended?'Unsuspend':'Suspend'}</button><button class="btn small" data-chat="${v.id}">Chat</button></div>`}
+async function publicMirrorRow(id,overrides={}){
+  const v=state.vendors.find(x=>x.id===id)||{};
+  const existing=state.publicVendors.find(x=>x.id===id)||{};
+  const products=(await readList(root.get('vendors').get(id).get('products'))).filter(p=>p.active!==false).map(p=>({id:p.id,name:p.name,category:p.category||'',description:p.description||'',price:Number(p.price||0),image:p.image||'',attributes:p.attributes||'[]',active:p.active!==false,updatedAt:p.updatedAt||Date.now()}));
+  return {...existing,...v,...overrides,id,lat:Number((overrides.lat??v.lat??existing.lat)||0),lng:Number((overrides.lng??v.lng??existing.lng)||0),products:products.length?JSON.stringify(products):(existing.products||'[]'),updatedAt:Date.now()};
+}
+async function updatePublicMirror(id,overrides){root.get('publicVendors').get(id).put(await publicMirrorRow(id,overrides))}
+function bindVendorActions(){
+  $$('[data-approve]').forEach(b=>b.onclick=()=>{const id=b.dataset.approve,n=root.get('vendors').get(id),i=state.vendors.findIndex(v=>v.id===id);if(i>=0)state.vendors[i]={...state.vendors[i],adminApproved:true,suspended:false,active:true};render();n.put({adminApproved:true,suspended:false,active:true,approvedAt:Date.now()});updatePublicMirror(id,{adminApproved:true,suspended:false,active:true,approvedAt:Date.now()})});
+  $$('[data-hide]').forEach(b=>b.onclick=()=>{const id=b.dataset.hide,i=state.vendors.findIndex(v=>v.id===id);if(i>=0)state.vendors[i]={...state.vendors[i],active:false};render();root.get('vendors').get(id).put({active:false,updatedAt:Date.now()});updatePublicMirror(id,{active:false})});
+  $$('[data-suspend]').forEach(b=>b.onclick=()=>{const id=b.dataset.suspend,v=state.vendors.find(x=>x.id===id);const nextSuspended=!suspended(v||{}),n=root.get('vendors').get(id),i=state.vendors.findIndex(x=>x.id===id);if(i>=0)state.vendors[i]={...state.vendors[i],suspended:nextSuspended,active:nextSuspended?false:state.vendors[i].active};render();n.put({suspended:nextSuspended,active:nextSuspended?false:v?.active===true,updatedAt:Date.now()});updatePublicMirror(id,{suspended:nextSuspended,active:nextSuspended?false:v?.active===true})});
+  $$('[data-chat]').forEach(b=>b.onclick=()=>{selectChat(b.dataset.chat);go('chats')});
+}
+function renderPending(){const rows=state.vendors.filter(v=>!approved(v)&&!suspended(v));$('#pendingList').innerHTML=rows.length?rows.slice(0,5).map(vendorCard).join(''):'<div class="empty">No pending vendors</div>';bindVendorActions();$('#recentOrders').innerHTML=state.orders.slice().sort((a,b)=>b.createdAt-a.createdAt).slice(0,6).map(o=>`<div class="row"><div class="info"><h4>#${esc(o.orderNumber||o.id?.slice(-6)||'')}</h4><p>${esc(o.customerName||'Customer')} · ${money(o.total)} · ${esc(o.status||'')}</p></div></div>`).join('')||'<div class="empty">No orders yet</div>'}
+function renderVendors(){let rows=state.vendors;const q=($('#vendorSearch')?.value||'').toLowerCase();if(state.vendorFilter==='pending')rows=rows.filter(v=>!approved(v)&&!suspended(v));if(q)rows=rows.filter(v=>`${v.crName} ${v.ownerAlias} ${v.businessType} ${v.crNumber}`.toLowerCase().includes(q));$('#vendorTable').innerHTML=rows.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Vendor</th><th>CR</th><th>Status</th><th>Location</th><th>Actions</th></tr></thead><tbody>${rows.map(v=>`<tr><td>${esc(v.crName||'Unnamed')}<br><span class="muted">${esc(v.ownerAlias||'')}</span></td><td>${esc(v.crNumber||'')}<br><span class="muted">${esc(v.businessType||'')}</span></td><td>${status(v)}</td><td>${v.lat&&v.lng?`${Number(v.lat).toFixed(5)}, ${Number(v.lng).toFixed(5)}`:'Missing'}</td><td><button class="btn small primary" data-approve="${v.id}">Allow public</button> <button class="btn small" data-hide="${v.id}">Hide</button> <button class="btn small danger" data-suspend="${v.id}">${suspended(v)?'Unsuspend':'Suspend'}</button> <button class="btn small" data-chat="${v.id}">Chat</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">No vendors found</div>';bindVendorActions()}
+function renderOrders(){const rows=state.orders.slice().sort((a,b)=>b.createdAt-a.createdAt);$('#orderTable').innerHTML=rows.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Order</th><th>Vendor</th><th>Customer</th><th>Total</th><th>Status</th><th>GPS</th><th>Placed</th></tr></thead><tbody>${rows.map(o=>{const v=state.vendors.find(x=>x.id===o.vendorId);return `<tr><td>#${esc(o.orderNumber||o.id?.slice(-6)||'')}</td><td>${esc(v?.crName||o.vendorId||'')}</td><td>${esc(o.customerName||'')}<br><span class="muted">${esc(o.customerPhone||'')}</span></td><td>${money(o.total)}</td><td>${esc(o.status||'')}</td><td>${o.customerLat&&o.customerLng?`${Number(o.customerLat).toFixed(5)}, ${Number(o.customerLng).toFixed(5)}`:'-'}</td><td>${new Date(Number(o.createdAt||Date.now())).toLocaleString()}</td></tr>`}).join('')}</tbody></table></div>`:'<div class="empty">No orders yet</div>'}
+function renderUsers(){const rows=state.presence.slice().sort((a,b)=>b.updatedAt-a.updatedAt);$('#userTable').innerHTML=rows.length?`<div class="table-wrap"><table class="table"><thead><tr><th>Online</th><th>Mode</th><th>Role</th><th>Alias</th><th>Vendor</th><th>View</th><th>Last seen</th></tr></thead><tbody>${rows.map(p=>`<tr><td>${Date.now()-Number(p.updatedAt||0)<45000?'<span class="pill ok">Online</span>':'<span class="pill warn">Away</span>'}</td><td>${esc(p.mode)}</td><td>${esc(p.role)}</td><td>${esc(p.alias)}</td><td>${esc(state.vendors.find(v=>v.id===p.vendorId)?.crName||p.vendorId||'')}</td><td>${esc(p.view)}</td><td>${new Date(Number(p.updatedAt||Date.now())).toLocaleString()}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">No active sessions yet</div>'}
+function renderChatVendors(){$('#chatVendors').innerHTML=state.vendors.length?state.vendors.map(v=>`<button class="row" style="text-align:left;color:inherit" data-select-chat="${v.id}"><img src="${v.logo||v.shopfront||''}" alt=""><span class="info"><h4>${esc(v.crName||'Unnamed')}</h4><p>${esc(state.chats.find(c=>c.id===v.id)?.lastText||'No messages')}</p></span></button>`).join(''):'<div class="empty">No vendors</div>';$$('[data-select-chat]').forEach(b=>b.onclick=()=>selectChat(b.dataset.selectChat))}
+function selectChat(id){state.selectedVendor=id;const v=state.vendors.find(x=>x.id===id);$('#chatTitle').textContent=v?.crName||'Vendor';state.messages=[];root.get('adminChats').get(id).get('messages').map().on((d,k)=>{upsert(state.messages,d,k);state.messages.sort((a,b)=>a.createdAt-b.createdAt);renderChatLog()});renderChatLog()}
+function renderChatLog(){$('#chatLog').innerHTML=state.messages.length?state.messages.map(m=>`<div class="msg ${m.from==='superadmin'?'superadmin':''}"><b>${m.from==='superadmin'?'SuperAdmin':'Vendor'}</b><p>${esc(m.text||'')}</p><div class="muted">${new Date(Number(m.createdAt||Date.now())).toLocaleString()}</div></div>`).join(''):'<div class="empty">No messages selected</div>'}
+$('#chatForm').onsubmit=e=>{e.preventDefault();if(!state.selectedVendor)return;const text=$('#chatText').value.trim();if(!text)return;const v=state.vendors.find(x=>x.id===state.selectedVendor);const id=uid('msg');root.get('adminChats').get(state.selectedVendor).get('messages').get(id).put({id,vendorId:state.selectedVendor,vendorName:v?.crName||'',from:'superadmin',text,createdAt:Date.now(),readByAdmin:true});root.get('adminChats').get(state.selectedVendor).put({vendorId:state.selectedVendor,vendorName:v?.crName||'',lastText:text,lastAt:Date.now()});$('#chatText').value=''}
+function renderMap(){if(!$('#mapView').classList.contains('active'))return;if(!state.map){state.map=L.map('map').setView([26.0667,50.5577],11);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(state.map)}state.markers.forEach(m=>state.map.removeLayer(m));state.markers=[];const rows=publicVendors();rows.forEach(v=>{const marker=L.marker([+v.lat,+v.lng],{icon:vendorIcon(v)}).addTo(state.map).bindPopup(`<b>${esc(v.crName||'Vendor')}</b><br>${esc(v.businessType||'')}`);state.markers.push(marker)});if(rows.length){state.map.fitBounds(L.featureGroup(state.markers).getBounds().pad(.2))}setTimeout(()=>state.map.invalidateSize(),80)}
+function go(id){$$('.view').forEach(v=>v.classList.toggle('active',v.id===id));$$('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===id));$('#title').textContent=$(`[data-view="${id}"]`)?.textContent||id;if(id==='mapView')setTimeout(renderMap,60)}
+$$('.nav button').forEach(b=>b.onclick=()=>go(b.dataset.view));$('#refreshBtn').onclick=render;$('#vendorSearch').oninput=renderVendors;$('#showPending').onclick=()=>{state.vendorFilter='pending';renderVendors()};$('#showAllVendors').onclick=()=>{state.vendorFilter='all';renderVendors()};
+setInterval(render,2500);
+root.get('vendors').map().on((d,k)=>{upsert(state.vendors,d,k);const row={...clean(d),id:d?.id||k};if(row.active&&row.adminApproved===true&&row.suspended!==true&&!state.backfilled[row.id]){state.backfilled[row.id]=true;updatePublicMirror(row.id,{active:true,adminApproved:true,suspended:false})}render()});
+root.get('publicVendors').map().on((d,k)=>{upsert(state.publicVendors,d,k);render()});
+root.get('ordersPublic').map().on((d,k)=>{upsert(state.orders,d,k);render()});
+root.get('customers').map().on((d,k)=>{upsert(state.customers,d,k);render()});
+root.get('presence').map().on((d,k)=>{upsert(state.presence,d,k);render()});
+root.get('adminChats').map().on((d,k)=>{upsert(state.chats,d,k);renderChatVendors()});
+})();
+</script>
+</body>
+</html>
