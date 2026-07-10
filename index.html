@@ -186,7 +186,6 @@ window.addEventListener('error',e=>{if(e.error||e.message)criticalError(e.messag
 window.addEventListener('unhandledrejection',e=>criticalError(e.reason?.message||e.reason||'A browser error stopped the app.'));
 await ensureLibraries();
 const APP_ROOT='omni-pos-v1';
-<<<<<<< HEAD
 const PRIVATE_RELAY='';
 const peers=[
   ...(PRIVATE_RELAY?[PRIVATE_RELAY]:[]),
@@ -196,15 +195,6 @@ const peers=[
   'https://gun.defucc.me/gun',
   'https://a.talkflow.team/gun'
 ];
-=======
-const RELAY_KEY='omni_pos_peers';
-const PRIMARY_RELAY='https://peer.wallie.io/gun';
-const DEFAULT_PEERS=[PRIMARY_RELAY];
-const LEGACY_PEERS=['https://gun-manhattan.herokuapp.com/gun',
-    'https://gundb-relay-mlccl.ondigitalocean.app/gun',
-    'https://gun.defucc.me/gun',
-    'https://a.talkflow.team/gun'];
->>>>>>> ffb3cb4075cbf887e74c1984893c63b8b94e0d7d
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const uid=(p='id')=>`${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,9)}`;
 const money=n=>`BHD ${Number(n||0).toFixed(3)}`;
@@ -239,8 +229,37 @@ setTimeout(()=>{if(!connectedRelays.size)setConnection(false,'No online relay co
 function syncPresence(){try{root.get('presence').get(sessionId).put({id:sessionId,mode:state.mode,role:state.role,alias:state.alias||'',vendorId:state.vendorId||'',customerId:localStorage.getItem('omni_customer_id')||'',view:document.querySelector('.view.active')?.id||'',online:true,updatedAt:Date.now()})}catch{}}
 setInterval(syncPresence,15000);
 
+function validAccount(meta){return meta&&meta.vendorId?{alias:meta.alias||'',role:meta.role||'employee',vendorId:meta.vendorId,employeeId:meta.employeeId||''}:null}
+function saveAccountLink(alias,meta){const row={alias,role:meta.role||'employee',vendorId:meta.vendorId,employeeId:meta.employeeId||'',updatedAt:Date.now()};root.get('accounts').get(alias).put(row);try{user.get('omniAccount').put(row)}catch{}return row}
+function recoverAccountFromVendors(alias,cb){
+  let found=null;
+  root.get('vendors').map().once((d,k)=>{
+    if(found||!d)return;
+    const vendor={...cleanGun(d),id:d.id||k};
+    if(String(vendor.ownerAlias||'').toLowerCase()===alias)found=saveAccountLink(alias,{role:'admin',vendorId:vendor.id});
+    root.get('vendors').get(vendor.id).get('employees').map().once((e,ek)=>{
+      if(found||!e)return;
+      const employee={...cleanGun(e),id:e.id||ek};
+      if(String(employee.alias||'').toLowerCase()===alias)found=saveAccountLink(alias,{role:employee.role||'employee',vendorId:vendor.id,employeeId:employee.id});
+    });
+  });
+  setTimeout(()=>cb(found),1800);
+}
 // Retry-based account lookup: a single .once() often fires before relay data arrives on a fresh device
-function fetchAccount(alias,cb,tries=6){root.get('accounts').get(alias).once(meta=>{if(meta||tries<=0)return cb(meta);setTimeout(()=>fetchAccount(alias,cb,tries-1),500)},{wait:400})}
+function fetchAccount(alias,cb,tries=10){
+  root.get('accounts').get(alias).once(meta=>{
+    const linked=validAccount(meta);
+    if(linked)return cb(linked);
+    if(tries>0)return setTimeout(()=>fetchAccount(alias,cb,tries-1),600);
+    try{
+      user.get('omniAccount').once(privateMeta=>{
+        const privateLink=validAccount(privateMeta);
+        if(privateLink)return cb(saveAccountLink(alias,privateLink));
+        recoverAccountFromVendors(alias,cb);
+      },{wait:500});
+    }catch{recoverAccountFromVendors(alias,cb)}
+  },{wait:500});
+}
 
 // Restore session on reload (important inside a Bubble iframe where refreshes are common)
 user.recall({sessionStorage:true});
@@ -307,7 +326,7 @@ $('#signupForm').onsubmit=e=>{
       done();
       if(a.err)return toast(a.err,'error');
       const vendorId=uid('vendor');
-      root.get('accounts').get(alias).put({alias,role:'admin',vendorId,createdAt:Date.now()});
+      saveAccountLink(alias,{role:'admin',vendorId,createdAt:Date.now()});
       state.alias=alias;state.role='admin';state.vendorId=vendorId;
       root.get('vendors').get(vendorId).put({id:vendorId,ownerAlias:alias,active:false,createdAt:Date.now()});
       showApp('vendor');
@@ -323,7 +342,7 @@ $('#loginForm').onsubmit=e=>{
     if(ack.err){btn.disabled=false;return toast(ack.err,'error')}
     fetchAccount(alias,meta=>{
       btn.disabled=false;
-      if(!meta){try{user.leave()}catch{}return toast('No OMNI POS role is linked to this account yet. If you just registered on another device, try again in a few seconds.','error')}
+      if(!meta){manualAuth=false;try{user.leave()}catch{}return toast('Login worked, but no OMNI POS vendor role was found for this username. Create a vendor account or ask SuperAdmin to check the account link.','error')}
       state.alias=alias;state.role=meta.role||'employee';state.vendorId=meta.vendorId;
       showApp('vendor');
     });
