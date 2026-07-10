@@ -186,6 +186,7 @@ window.addEventListener('error',e=>{if(e.error||e.message)criticalError(e.messag
 window.addEventListener('unhandledrejection',e=>criticalError(e.reason?.message||e.reason||'A browser error stopped the app.'));
 await ensureLibraries();
 const APP_ROOT='omni-pos-v1';
+<<<<<<< HEAD
 const PRIVATE_RELAY='';
 const peers=[
   ...(PRIVATE_RELAY?[PRIVATE_RELAY]:[]),
@@ -195,6 +196,15 @@ const peers=[
   'https://gun.defucc.me/gun',
   'https://a.talkflow.team/gun'
 ];
+=======
+const RELAY_KEY='omni_pos_peers';
+const PRIMARY_RELAY='https://peer.wallie.io/gun';
+const DEFAULT_PEERS=[PRIMARY_RELAY];
+const LEGACY_PEERS=['https://gun-manhattan.herokuapp.com/gun',
+    'https://gundb-relay-mlccl.ondigitalocean.app/gun',
+    'https://gun.defucc.me/gun',
+    'https://a.talkflow.team/gun'];
+>>>>>>> ffb3cb4075cbf887e74c1984893c63b8b94e0d7d
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const uid=(p='id')=>`${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,9)}`;
 const money=n=>`BHD ${Number(n||0).toFixed(3)}`;
