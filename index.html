@@ -77,7 +77,7 @@
         flex-direction: column;
         gap: 18px;
         backdrop-filter: blur(16px);
-        z-index: 20
+        z-index: 3000
     }
 
     .brand {
@@ -532,13 +532,51 @@
     #map, #customerMap {
         height: 500px;
         border-radius: 16px;
-        background:#111827
+        background: #111827;
+        z-index:1
+    }
+
+    .leaflet-container {
+        z-index:1
     }
 
     .map-layout {
         display: grid;
         grid-template-columns: minmax(0, 1.6fr) minmax(300px, .8fr);
         gap:16px
+    }
+
+    .map-card.map-fullscreen {
+        position: fixed !important;
+        inset: 12px !important;
+        z-index: 4200 !important;
+        margin: 0 !important;
+        padding: 16px !important;
+        background:var(--panel) !important
+    }
+
+    .map-card.map-fullscreen #map, .map-card.map-fullscreen #customerMap {
+        height:calc(100vh - 90px) !important
+    }
+
+    .vendor-map-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        overflow: hidden;
+        border: 3px solid #fff;
+        background: linear-gradient(135deg, var(--accent), var(--accent2));
+        box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+        display: grid;
+        place-items: center;
+        color: #fff;
+        font-weight:900
+    }
+
+    .vendor-map-icon img {
+        width: 100%;
+        height: 100%;
+        object-fit:cover
     }
 
     .vendor-list {
@@ -592,7 +630,7 @@
         display: grid;
         place-items: center;
         padding: 18px;
-        z-index: 100;
+        z-index: 5000;
         backdrop-filter:blur(7px)
     }
 
@@ -767,7 +805,7 @@
         top: 0;
         bottom: 0;
         width: min(440px, 100%);
-        z-index: 90;
+        z-index: 4800;
         background: var(--panel);
         border-left: 1px solid var(--line);
         box-shadow: -25px 0 70px rgba(0, 0, 0, .42);
@@ -1092,6 +1130,7 @@
                 <button data-view="branches">⌖ Branches</button>
                 <button data-view="employees">♙ Employees</button>
                 <button data-view="vendorMap">⌘ Vendor map</button>
+                <button data-view="adminChat">✉ SuperAdmin chat</button>
                 <button data-view="settings">⚙ Settings</button>
             </nav>
             <nav id="customerNav" class="nav hidden">
@@ -1214,14 +1253,31 @@
                     <div id="employeeTable" class="card card-pad"></div>
                 </section>
                 <section id="vendorMap" class="view">
-                    <div class="card card-pad">
+                    <div id="vendorMapCard" class="card card-pad map-card">
                         <div class="card-head">
                             <h2>Public vendor discovery map</h2>
+                            <div class="spacer"></div>
+                            <button id="fullVendorMap" class="btn ghost small">Full screen</button>
                         </div>
                         <div class="map-layout">
                             <div id="map"></div>
                             <div id="mapVendorList" class="vendor-list"></div>
                         </div>
+                    </div>
+                </section>
+                <section id="adminChat" class="view">
+                    <div class="card card-pad">
+                        <div class="card-head">
+                            <h2>SuperAdmin chat</h2>
+                        </div>
+                        <div id="adminChatLog" class="grid" style="max-height:55vh;overflow:auto;margin-bottom:14px"></div>
+                        <form id="adminChatForm" class="form-grid">
+                            <div class="field full">
+                                <label>Message</label>
+                                <textarea id="adminChatText" required placeholder="Write to SuperAdmin..."></textarea>
+                            </div>
+                            <button class="btn primary full">Send message</button>
+                        </form>
                     </div>
                 </section>
                 <section id="settings" class="view">
@@ -1234,7 +1290,7 @@
                         </div>
                         <div class="card card-pad">
                             <div class="card-head">
-                                <h2>Security & database</h2>
+                                <h2>Security</h2>
                             </div>
                             <form id="passwordForm" style="display:grid;gap:12px">
                                 <div class="field">
@@ -1247,12 +1303,6 @@
                                 </div>
                                 <button class="btn primary">Change my password</button>
                             </form>
-                            <hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
-                            <div class="field">
-                                <label>GUN relay URLs (one per line)</label>
-                                <textarea id="relayInput"></textarea>
-                            </div>
-                            <button id="saveRelays" class="btn ghost" style="margin-top:10px">Save relays & reload</button>
                         </div>
                     </div>
                 </section>
@@ -1261,8 +1311,9 @@
                     <div class="toolbar">
                         <input id="marketSearch" class="input search" placeholder="Search vendors, products or services…">
                         <button id="locateCustomer" class="btn ghost">⌖ Use my location</button>
+                        <button id="fullCustomerMap" class="btn ghost">Full screen map</button>
                     </div>
-                    <div class="card card-pad" style="margin-bottom:16px">
+                    <div id="customerMapCard" class="card card-pad map-card" style="margin-bottom:16px">
                         <div id="customerMap"></div>
                     </div>
                     <div id="marketVendorGrid" class="grid cols-3"></div>
@@ -1394,7 +1445,7 @@
                     })
                 }
             });
-            setTimeout(() => resolve(rows), 650)
+            setTimeout(() => resolve(rows), 900)
         });
         const state = {
             mode: 'guest',
@@ -1407,6 +1458,8 @@
             employees: [],
             orders: [],
             vendors: [],
+            publicVendors: [],
+            adminMessages: [],
             cart: [],
             posCart: [],
             customerLocation: null,
@@ -1437,6 +1490,7 @@
         let user = gun.user();
         let root = gun.get(APP_ROOT);
         let manualAuth = false;
+        const sessionId = uid('session');
 
         // Fix broken Leaflet marker icons when the app runs inside an iframe (Bubble)
         L.Icon.Default.mergeOptions({
@@ -1477,6 +1531,22 @@
             if (!$('#connectionDot').classList.contains('online'))
                 setConnection(false, 'Still retrying relay; local graph active')
         }, 4500);
+        function syncPresence() {
+            try {
+                root.get('presence').get(sessionId).put({
+                    id: sessionId,
+                    mode: state.mode,
+                    role: state.role,
+                    alias: state.alias || '',
+                    vendorId: state.vendorId || '',
+                    customerId: localStorage.getItem('omni_customer_id') || '',
+                    view: document.querySelector('.view.active')?.id || '',
+                    online: true,
+                    updatedAt: Date.now()
+                })
+            } catch {}
+        }
+        setInterval(syncPresence, 15000);
 
         // Retry-based account lookup: a single .once() often fires before relay data arrives on a fresh device
         function fetchAccount(alias, cb, tries=6) {
@@ -1510,7 +1580,7 @@
             });
         });
 
-        function imageToDataURL(file, max=900, quality=.78) {
+        function imageToDataURL(file, max=620, quality=.66) {
             return new Promise((res, rej) => {
                 if (!file)
                     return res('');
@@ -1588,12 +1658,13 @@
                 loadMarketplace();
             else
                 loadVendorData();
+            syncPresence();
         }
         function goView(id) {
             $$('.view').forEach(v => v.classList.toggle('active', v.id === id));
             $$('.nav button').forEach(b => b.classList.toggle('active', b.dataset.view === id));
             const b = $(`[data-view="${id}"]`);
-            $('#pageTitle').textContent = b ? b.textContent.replace(/[▦◉▤◇⌖♙⌘⚙⌂]/g, '').trim().replace(/\s*\d+$/, '') : id;
+            $('#pageTitle').textContent = b ? b.textContent.replace(/[▦◉▤◇⌖♙⌘⚙⌂✉]/g, '').trim().replace(/\s*\d+$/, '') : id;
             closeSidebar();
             if (id === 'vendorMap')
                 setTimeout(renderVendorMap, 50);
@@ -1601,6 +1672,9 @@
                 setTimeout(renderCustomerMap, 50);
             if (id === 'customerOrders')
                 renderCustomerOrders();
+            if (id === 'adminChat')
+                renderAdminChat();
+            syncPresence();
         }
         function closeSidebar() {
             $('#sidebar').classList.remove('open');
@@ -1739,6 +1813,7 @@
                 renderEmployees()
             });
             subscribeOrders();
+            subscribeAdminChat();
             loadAllVendors();
         }
         function upsert(arr, d, k) {
@@ -1994,7 +2069,7 @@
             } catch {
                 items = []
             }
-            openModal(`Order #${o.orderNumber || id.slice(-6)}`, `<div class="grid" style="gap:10px">${items.map(i => `<div class="vendor-row"><img src="${i.image || placeholder(i.name)}" alt=""><div class="info"><h4>${esc(i.name)} × ${i.qty}</h4><p>${esc((i.attributes || []).join(', '))}</p></div><b>${money(i.lineTotal)}</b></div>`).join('')}</div><div style="display:grid;gap:8px;margin-top:16px"><div><b>Customer:</b> ${esc(o.customerName || '')} · ${esc(o.customerPhone || '')}</div><div><b>Address:</b> ${esc(o.address || '')}</div><div><b>Payment:</b> ${esc(o.paymentMethod || '')}</div>${o.receipt ? `<div><b>Receipt:</b><br><img class="receipt-preview" src="${o.receipt}"></div>` : ''}<div class="total-row"><span>Total</span><span>${money(o.total)}</span></div><div class="field"><label>Update status</label><select id="statusSelect"><option>pending</option><option>preparing</option><option>out-for-delivery</option><option>done</option><option>cancelled</option></select></div><button id="saveStatus" class="btn primary">Save status</button></div>`);
+            openModal(`Order #${o.orderNumber || id.slice(-6)}`, `<div class="grid" style="gap:10px">${items.map(i => `<div class="vendor-row"><img src="${i.image || placeholder(i.name)}" alt=""><div class="info"><h4>${esc(i.name)} × ${i.qty}</h4><p>${esc((i.attributes || []).join(', '))}</p></div><b>${money(i.lineTotal)}</b></div>`).join('')}</div><div style="display:grid;gap:8px;margin-top:16px"><div><b>Customer:</b> ${esc(o.customerName || '')} · ${esc(o.customerPhone || '')}</div><div><b>Address:</b> ${esc(o.address || '')}</div>${o.customerLat && o.customerLng ? `<div><b>GPS:</b> ${Number(o.customerLat).toFixed(5)}, ${Number(o.customerLng).toFixed(5)}</div>` : ''}<div><b>Payment:</b> ${esc(o.paymentMethod || '')}</div>${o.receipt ? `<div><b>Receipt:</b><br><img class="receipt-preview" src="${o.receipt}"></div>` : ''}<div class="total-row"><span>Total</span><span>${money(o.total)}</span></div><div class="field"><label>Update status</label><select id="statusSelect"><option>pending</option><option>preparing</option><option>out-for-delivery</option><option>done</option><option>cancelled</option></select></div><button id="saveStatus" class="btn primary">Save status</button></div>`);
             $('#statusSelect').value = o.status;
             $('#saveStatus').onclick = () => {
                 const s = $('#statusSelect').value;
@@ -2112,7 +2187,8 @@
 
         function renderProfileForm() {
             const p = state.profile;
-            $('#profileForm').innerHTML = `<div class="field"><label>CR name *</label><input id="crName" required value="${esc(p.crName || '')}"></div><div class="field"><label>CR number *</label><input id="crNumber" required value="${esc(p.crNumber || '')}"></div><div class="field"><label>WhatsApp number</label><input id="whatsapp" value="${esc(p.whatsapp || '')}"></div><div class="field"><label>Benefit number / IBAN</label><input id="benefitNumber" value="${esc(p.benefitNumber || '')}"></div><div class="field full"><label>Business type</label><select id="businessType"><option>Restaurant</option><option>Cafeteria</option><option>Cold store</option><option>Bakery</option><option>Grocery</option><option>Other</option></select></div><div class="field"><label>Latitude *</label><input id="profileLat" required type="number" step="any" value="${p.lat || ''}"></div><div class="field"><label>Longitude *</label><input id="profileLng" required type="number" step="any" value="${p.lng || ''}"></div><button id="profileGps" type="button" class="btn ghost full">Use current GPS location</button><div class="field"><label>Logo</label><input id="profileLogo" type="file" accept="image/*">${p.logo ? `<img class="receipt-preview" src="${p.logo}">` : ''}</div><div class="field"><label>Shopfront image</label><input id="profileShopfront" type="file" accept="image/*">${p.shopfront ? `<img class="receipt-preview" src="${p.shopfront}">` : ''}</div><label class="switchline full"><input id="profileActive" type="checkbox" ${p.active ? 'checked' : ''}> Publish vendor on customer map</label><button class="btn primary full">Save vendor profile</button>`;
+            const approval = p.suspended ? 'Suspended' : (p.adminApproved ? 'Approved by SuperAdmin' : 'Awaiting SuperAdmin approval');
+            $('#profileForm').innerHTML = `<div class="field full"><label>Public listing status</label><div class="connection"><span class="dot ${p.adminApproved && !p.suspended ? 'online' : ''}"></span><span>${esc(approval)}</span></div></div><div class="field"><label>CR name *</label><input id="crName" required value="${esc(p.crName || '')}"></div><div class="field"><label>CR number *</label><input id="crNumber" required value="${esc(p.crNumber || '')}"></div><div class="field"><label>WhatsApp number</label><input id="whatsapp" value="${esc(p.whatsapp || '')}"></div><div class="field"><label>Benefit number / IBAN</label><input id="benefitNumber" value="${esc(p.benefitNumber || '')}"></div><div class="field full"><label>Business type</label><select id="businessType"><option>Restaurant</option><option>Cafeteria</option><option>Cold store</option><option>Bakery</option><option>Grocery</option><option>Other</option></select></div><div class="field"><label>Latitude *</label><input id="profileLat" required type="number" step="any" value="${p.lat || ''}"></div><div class="field"><label>Longitude *</label><input id="profileLng" required type="number" step="any" value="${p.lng || ''}"></div><button id="profileGps" type="button" class="btn ghost full">Use current GPS location</button><div class="field"><label>Logo</label><input id="profileLogo" type="file" accept="image/*">${p.logo ? `<img class="receipt-preview" src="${p.logo}">` : ''}</div><div class="field"><label>Shopfront image</label><input id="profileShopfront" type="file" accept="image/*">${p.shopfront ? `<img class="receipt-preview" src="${p.shopfront}">` : ''}</div><label class="switchline full"><input id="profileActive" type="checkbox" ${p.active ? 'checked' : ''}> Request public listing on the customer map</label><button class="btn primary full">Save vendor profile</button>`;
             $('#businessType').value = p.businessType || 'Restaurant';
             $('#profileGps').onclick = () => getLocation().then(x => {
                 $('#profileLat').value = x.lat;
@@ -2164,14 +2240,6 @@
                 change: nu
             })
         };
-        $('#relayInput').value = peers.join('\n');
-        $('#saveRelays').onclick = () => {
-            const arr = $('#relayInput').value.split(/\n|,/).map(x => x.trim()).filter(Boolean);
-            if (!arr.length)
-                return toast('Provide at least one relay URL', 'error');
-            localStorage.setItem(RELAY_KEY, JSON.stringify([...new Set([PRIMARY_RELAY, ...arr.filter(x => x !== PRIMARY_RELAY)])]));
-            location.reload()
-        };
 
         function loadAllVendors() {
             root.get('vendors').map().on((d, k) => {
@@ -2222,15 +2290,40 @@
             state.maps[key] = m;
             return m
         }
+        function publicVendors() {
+            return state.vendors.filter(v => v.active && v.adminApproved === true && v.suspended !== true && v.lat && v.lng)
+        }
+        function vendorIcon(v) {
+            const name = esc(v.crName || 'V'),
+                src = v.logo || v.shopfront || '';
+            return L.divIcon({
+                className: '',
+                iconSize: [40, 40],
+                iconAnchor: [20, 40],
+                popupAnchor: [0, -36],
+                html: `<div class="vendor-map-icon">${src ? `<img src="${src}" alt="">` : esc(name[0] || 'V')}</div>`
+            })
+        }
+        function toggleMapFullscreen(cardId, key) {
+            const card = $(`#${cardId}`);
+            if (!card)
+                return;
+            card.classList.toggle('map-fullscreen');
+            setTimeout(()=>state.maps[key]?.invalidateSize(), 120)
+        }
+        $('#fullVendorMap').onclick = () => toggleMapFullscreen('vendorMapCard', 'vendor');
+        $('#fullCustomerMap').onclick = () => toggleMapFullscreen('customerMapCard', 'customer');
         function renderVendorMap() {
             if (!$('#vendorMap').classList.contains('active'))
                 return;
             const m = ensureMap('map', 'vendor');
             state.markers.filter(x => x.scope === 'vendor').forEach(x => m.removeLayer(x.marker));
             state.markers = state.markers.filter(x => x.scope !== 'vendor');
-            const active = state.vendors.filter(v => v.active && v.lat && v.lng);
+            const active = publicVendors();
             active.forEach(v => {
-                const marker = L.marker([+v.lat, +v.lng]).addTo(m).bindPopup(`<b>${esc(v.crName || 'Vendor')}</b><br>${esc(v.businessType || '')}`);
+                const marker = L.marker([+v.lat, +v.lng], {
+                    icon: vendorIcon(v)
+                }).addTo(m).bindPopup(`<b>${esc(v.crName || 'Vendor')}</b><br>${esc(v.businessType || '')}`);
                 state.markers.push({
                     scope: 'vendor',
                     marker
@@ -2240,7 +2333,7 @@
                 const g = L.featureGroup(state.markers.filter(x => x.scope === 'vendor').map(x => x.marker));
                 m.fitBounds(g.getBounds().pad(.2))
             }
-            $('#mapVendorList').innerHTML = active.length ? active.map(v => vendorRow(v)).join('') : `<div class="empty"><h3>No published vendors</h3></div>`
+            $('#mapVendorList').innerHTML = active.length ? active.map(v => vendorRow(v)).join('') : `<div class="empty"><h3>No approved public vendors</h3></div>`
         }
         function vendorRow(v) {
             return `<div class="vendor-row"><img src="${v.logo || placeholder(v.crName || 'Vendor')}" alt=""><div class="info"><h4>${esc(v.crName || 'Vendor')}</h4><p>${esc(v.businessType || '')} ${state.customerLocation && v.lat ? `· ${distance(state.customerLocation, {lat: +v.lat,lng: +v.lng}).toFixed(1)} km` : ''}</p></div></div>`
@@ -2272,6 +2365,28 @@
                 return []
             }
         }
+        function customerId() {
+            let id = localStorage.getItem('omni_customer_id');
+            if (!id) {
+                id = uid('customer');
+                localStorage.setItem('omni_customer_id', id)
+            }
+            return id
+        }
+        function savedCustomer() {
+            try {
+                return JSON.parse(localStorage.getItem('omni_customer_profile') || '{}') || {}
+            } catch {
+                return {}
+            }
+        }
+        function saveCustomerProfile(p) {
+            localStorage.setItem('omni_customer_profile', JSON.stringify(p));
+            root.get('customers').get(p.id).put({
+                ...p,
+                updatedAt: Date.now()
+            })
+        }
         $('#locateCustomer').onclick = () => getLocation().then(x => {
             state.customerLocation = x;
             renderMarketplaceCards();
@@ -2288,7 +2403,7 @@
         }
         function renderMarketplaceCards() {
             const q = ($('#marketSearch')?.value || '').trim().toLowerCase();
-            let rows = state.vendors.filter(v => v.active && v.crName && v.lat && v.lng);
+            let rows = publicVendors().filter(v => v.crName);
             rows.sort((a, b) => distance(state.customerLocation, {
                 lat: +a.lat,
                 lng: +a.lng
@@ -2296,14 +2411,14 @@
                 lat: +b.lat,
                 lng: +b.lng
             }));
-            $('#marketVendorGrid').innerHTML = rows.length ? rows.map(v => `<article class="card product"><img src="${v.shopfront || v.logo || placeholder(v.crName)}" alt="${esc(v.crName)}"><div class="body"><h3>${esc(v.crName)}</h3><div class="muted">${esc(v.businessType || 'Vendor')} ${state.customerLocation ? `· ${distance(state.customerLocation, {lat: +v.lat,lng: +v.lng}).toFixed(1)} km` : ''}</div><button class="btn primary" style="width:100%;margin-top:12px" data-shop="${v.id}">View menu</button></div></article>`).join('') : `<div class="card empty" style="grid-column:1/-1"><div class="icon">⌂</div><h3>No vendors found</h3><div>The public list is empty until vendors register and publish profiles.</div></div>`;
+            $('#marketVendorGrid').innerHTML = rows.length ? rows.map(v => `<article class="card product"><img src="${v.shopfront || v.logo || placeholder(v.crName)}" alt="${esc(v.crName)}"><div class="body"><h3>${esc(v.crName)}</h3><div class="muted">${esc(v.businessType || 'Vendor')} ${state.customerLocation ? `· ${distance(state.customerLocation, {lat: +v.lat,lng: +v.lng}).toFixed(1)} km` : ''}</div><button class="btn primary" style="width:100%;margin-top:12px" data-shop="${v.id}">View menu</button></div></article>`).join('') : `<div class="card empty" style="grid-column:1/-1"><div class="icon">⌂</div><h3>No approved vendors found</h3><div>Vendors appear here after SuperAdmin approval.</div></div>`;
             $$('[data-shop]').forEach(b => b.onclick = () => openVendorShop(b.dataset.shop));
             if (q)
                 filterMarketplaceByProducts(q)
         }
         async function filterMarketplaceByProducts(q) {
             const visible = [];
-            for (const v of state.vendors.filter(v => v.active)) {
+            for (const v of publicVendors()) {
                 const ps = await getVendorProducts(v.id);
                 if (`${v.crName} ${v.businessType}`.toLowerCase().includes(q) || ps.some(p => `${p.name} ${p.description || ''}`.toLowerCase().includes(q)))
                     visible.push(v)
@@ -2335,15 +2450,20 @@
             state.markers = state.markers.filter(x => x.scope !== 'customer');
             if (state.customerLocation) {
                 const me = L.circleMarker(center, {
-                    radius: 8
+                    radius: 8,
+                    color: '#20d3a6',
+                    fillColor: '#20d3a6',
+                    fillOpacity: .9
                 }).addTo(m).bindPopup('Your location');
                 state.markers.push({
                     scope: 'customer',
                     marker: me
                 })
             }
-            state.vendors.filter(v => v.active && v.lat && v.lng).forEach(v => {
-                const marker = L.marker([+v.lat, +v.lng]).addTo(m).bindPopup(`<b>${esc(v.crName)}</b>`);
+            publicVendors().forEach(v => {
+                const marker = L.marker([+v.lat, +v.lng], {
+                    icon: vendorIcon(v)
+                }).addTo(m).bindPopup(`<b>${esc(v.crName)}</b>`);
                 marker.on('click', () => openVendorShop(v.id));
                 state.markers.push({
                     scope: 'customer',
@@ -2352,6 +2472,44 @@
             });
             m.setView(center, 12)
         }
+
+        function subscribeAdminChat() {
+            state.adminMessages = [];
+            root.get('adminChats').get(state.vendorId).get('messages').map().on((d, k) => {
+                upsert(state.adminMessages, d, k);
+                state.adminMessages.sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0));
+                renderAdminChat()
+            })
+        }
+        function renderAdminChat() {
+            if (!$('#adminChatLog'))
+                return;
+            $('#adminChatLog').innerHTML = state.adminMessages.length ? state.adminMessages.map(m => `<div class="vendor-row" style="align-items:flex-start"><div class="brand-mark" style="width:36px;height:36px;border-radius:12px">${m.from === 'superadmin' ? 'S' : 'V'}</div><div class="info"><h4>${m.from === 'superadmin' ? 'SuperAdmin' : 'Vendor'}</h4><p>${esc(m.text || '')}</p><p>${new Date(Number(m.createdAt || Date.now())).toLocaleString()}</p></div></div>`).join('') : `<div class="empty"><h3>No messages yet</h3></div>`
+        }
+        $('#adminChatForm').onsubmit = e => {
+            e.preventDefault();
+            const text = $('#adminChatText').value.trim();
+            if (!text)
+                return;
+            const id = uid('msg');
+            root.get('adminChats').get(state.vendorId).get('messages').get(id).put({
+                id,
+                vendorId: state.vendorId,
+                vendorName: state.profile.crName || state.alias,
+                from: 'vendor',
+                text,
+                createdAt: Date.now(),
+                readByVendor: true
+            });
+            root.get('adminChats').get(state.vendorId).put({
+                vendorId: state.vendorId,
+                vendorName: state.profile.crName || state.alias,
+                lastText: text,
+                lastAt: Date.now()
+            });
+            $('#adminChatText').value = '';
+            toast('Message sent', 'success')
+        };
 
         $('#cartBtn').onclick = () => {
             $('#cartDrawer').classList.remove('hidden');
@@ -2388,7 +2546,15 @@
             const v = state.currentVendor && state.currentVendor.id === state.cart[0].vendorId ? state.currentVendor : state.vendors.find(x => x.id === state.cart[0].vendorId);
             if (!v)
                 return toast('Open the vendor menu again to complete checkout', 'error');
-            openModal('Checkout', `<form id="checkoutForm" class="form-grid"><div class="field"><label>Name *</label><input id="coName" required autocomplete="name"></div><div class="field"><label>Phone *</label><input id="coPhone" required inputmode="tel" autocomplete="tel"></div><div class="field full"><label>Delivery address *</label><textarea id="coAddress" required></textarea></div><div class="field full"><label>Payment method</label><select id="coPayment"><option value="delivery">Pay on delivery</option><option value="benefit">Pay now by Benefit</option></select></div><div id="benefitBox" class="card card-pad full hidden"><b>Send payment to:</b><div style="font-size:18px;margin-top:8px">${esc(v.benefitNumber || 'Vendor has not provided a Benefit number')}</div><div class="field" style="margin-top:12px"><label>Attach payment receipt *</label><input id="coReceipt" type="file" accept="image/*"></div></div><div class="total-row full"><span>Total</span><span>${money(cartTotal())}</span></div><button class="btn primary full">Confirm purchase</button></form>`);
+            const cp = savedCustomer();
+            openModal('Checkout', `<form id="checkoutForm" class="form-grid"><div class="field"><label>Name *</label><input id="coName" required autocomplete="name" value="${esc(cp.name || '')}"></div><div class="field"><label>Phone *</label><input id="coPhone" required inputmode="tel" autocomplete="tel" value="${esc(cp.phone || '')}"></div><div class="field full"><label>Delivery address *</label><textarea id="coAddress" required>${esc(cp.address || '')}</textarea></div><div class="field"><label>Latitude *</label><input id="coLat" required type="number" step="any" value="${cp.lat||state.customerLocation?.lat || ''}"></div><div class="field"><label>Longitude *</label><input id="coLng" required type="number" step="any" value="${cp.lng||state.customerLocation?.lng || ''}"></div><button id="coGps" class="btn ghost full" type="button">Use current GPS location</button><div class="field full"><label>Payment method</label><select id="coPayment"><option value="delivery">Pay on delivery</option><option value="benefit">Pay now by Benefit</option></select></div><div id="benefitBox" class="card card-pad full hidden"><b>Send payment to:</b><div style="font-size:18px;margin-top:8px">${esc(v.benefitNumber || 'Vendor has not provided a Benefit number')}</div><div class="field" style="margin-top:12px"><label>Attach payment receipt *</label><input id="coReceipt" type="file" accept="image/*"></div></div><div class="total-row full"><span>Total</span><span>${money(cartTotal())}</span></div><button class="btn primary full">Confirm purchase</button></form>`);
+            $('#coGps').onclick = () => getLocation().then(x => {
+                $('#coLat').value = x.lat;
+                $('#coLng').value = x.lng;
+                state.customerLocation = x;
+                renderCustomerMap();
+                toast('GPS captured', 'success')
+            }).catch(e => toast(e.message, 'error'));
             $('#coPayment').onchange = () => $('#benefitBox').classList.toggle('hidden', $('#coPayment').value !== 'benefit');
             $('#checkoutForm').onsubmit = async e => {
                 e.preventDefault();
@@ -2405,14 +2571,26 @@
                         return toast(err.message, 'error')
                     }
                 }
+                const customer = {
+                    id: customerId(),
+                    name: $('#coName').value.trim(),
+                    phone: $('#coPhone').value.trim(),
+                    address: $('#coAddress').value.trim(),
+                    lat: Number($('#coLat').value),
+                    lng: Number($('#coLng').value)
+                };
+                saveCustomerProfile(customer);
                 const id = uid('order'),
                     order = {
                         id,
                         orderNumber: String(Date.now()).slice(-6),
                         vendorId: v.id,
-                        customerName: $('#coName').value.trim(),
-                        customerPhone: $('#coPhone').value.trim(),
-                        address: $('#coAddress').value.trim(),
+                        customerId: customer.id,
+                        customerName: customer.name,
+                        customerPhone: customer.phone,
+                        address: customer.address,
+                        customerLat: customer.lat,
+                        customerLng: customer.lng,
                         paymentMethod: $('#coPayment').value,
                         receipt,
                         status: 'pending',
@@ -2447,3 +2625,4 @@
     </script>
 </body>
 </html>
+
