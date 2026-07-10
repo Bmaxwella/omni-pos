@@ -183,7 +183,7 @@ window.addEventListener('error',e=>{if(e.error||e.message)criticalError(e.messag
 window.addEventListener('unhandledrejection',e=>criticalError(e.reason?.message||e.reason||'A browser error stopped the app.'));
 await ensureLibraries();
 const APP_ROOT='omni-pos-v1';
-const DEFAULT_PEERS=['https://gun-manhattan.herokuapp.com/gun','https://gun-us.herokuapp.com/gun'];
+const DEFAULT_PEERS=['https://gunjs.herokuapp.com/gun'];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const uid=(p='id')=>`${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,9)}`;
 const money=n=>`BHD ${Number(n||0).toFixed(3)}`;
