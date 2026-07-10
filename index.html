@@ -60,6 +60,7 @@ button,input,textarea,select{font:inherit}button{cursor:pointer}.hidden{display:
       <form id="loginForm">
         <div class="field"><label>Username</label><input id="loginAlias" autocomplete="username" required placeholder="admin or employee username"></div>
         <div class="field"><label>Password</label><input id="loginPassword" type="password" autocomplete="current-password" required></div>
+        <label class="switchline"><input id="keepSignedIn" type="checkbox" checked> Stay signed in on this device</label>
         <button class="btn primary" type="submit">Sign in</button>
         <button id="forgotPasswordBtn" class="btn ghost" type="button">Forgot password?</button>
       </form>
@@ -209,6 +210,7 @@ let user=gun.user();
 let root=gun.get(APP_ROOT);
 let manualAuth=false;
 const sessionId=uid('session');
+const SESSION_KEY='omni_pos_session';
 
 // Fix broken Leaflet marker icons when the app runs inside an iframe (Bubble)
 L.Icon.Default.mergeOptions({
@@ -221,14 +223,17 @@ function toast(msg,type=''){const el=document.createElement('div');el.className=
 const connectedRelays=new Set();
 function peerName(peer){return String(peer?.url||peer?.wire?.url||peer||'relay').replace(/^https?:\/\//,'').replace(/^wss?:\/\//,'')}
 function setConnection(ok,text){$('#connectionDot').classList.toggle('online',ok);$('#connectionText').textContent=text}
+function lastSyncText(){return state.lastSyncAt?` · Synced ${new Date(state.lastSyncAt).toLocaleTimeString()}`:''}
+function markSynced(){state.lastSyncAt=Date.now();if(connectedRelays.size)setConnection(true,`Online sync active · ${connectedRelays.size} relay${connectedRelays.size===1?'':'s'}${lastSyncText()}`)}
 function syncGunHeartbeat(source='boot'){try{root.get('_health').get('last').put({app:'OMNI POS',source,at:Date.now(),relays:[...connectedRelays],peers})}catch{}}
 setConnection(false,`Connecting to ${peers.length} online relays`);
-gun.on('hi',peer=>{connectedRelays.add(peerName(peer));setConnection(true,`Online sync active · ${connectedRelays.size} relay${connectedRelays.size===1?'':'s'}`);syncGunHeartbeat('relay')});
-gun.on('bye',peer=>{connectedRelays.delete(peerName(peer));setConnection(connectedRelays.size>0,connectedRelays.size?`Online sync active · ${connectedRelays.size} relay${connectedRelays.size===1?'':'s'}`:'No relay connection; local cache only')});
+gun.on('hi',peer=>{connectedRelays.add(peerName(peer));setConnection(true,`Online sync active · ${connectedRelays.size} relay${connectedRelays.size===1?'':'s'}${lastSyncText()}`);syncGunHeartbeat('relay');syncLocalData()});
+gun.on('bye',peer=>{connectedRelays.delete(peerName(peer));setConnection(connectedRelays.size>0,connectedRelays.size?`Online sync active · ${connectedRelays.size} relay${connectedRelays.size===1?'':'s'}${lastSyncText()}`:'No relay connection; local cache only')});
 syncGunHeartbeat('boot');
 setTimeout(()=>{if(!connectedRelays.size)setConnection(false,'No online relay connection; data is local only')},6500);
-function syncPresence(){try{root.get('presence').get(sessionId).put({id:sessionId,mode:state.mode,role:state.role,alias:state.alias||'',vendorId:state.vendorId||'',customerId:localStorage.getItem('omni_customer_id')||'',view:document.querySelector('.view.active')?.id||'',online:true,updatedAt:Date.now()})}catch{}}
-setInterval(syncPresence,15000);
+function syncPresence(){try{root.get('presence').get(sessionId).put({id:sessionId,mode:state.mode,role:state.role,alias:state.alias||'',vendorId:state.vendorId||'',customerId:localStorage.getItem('omni_customer_id')||'',view:document.querySelector('.view.active')?.id||'',online:true,updatedAt:Date.now()},ack=>{if(!ack?.err)markSynced()})}catch{}}
+function syncLocalData(){syncPresence();try{const customer=JSON.parse(localStorage.getItem('omni_customer_profile')||'null');if(customer?.id)root.get('customers').get(customer.id).put({...customer,updatedAt:Date.now()},ack=>{if(!ack?.err)markSynced()});root.get('deviceSync').get(sessionId).put({id:sessionId,alias:state.alias||'',vendorId:state.vendorId||'',customerId:localStorage.getItem('omni_customer_id')||'',lastOrderIds:localStorage.getItem('omni_customer_orders')||'[]',updatedAt:Date.now()},ack=>{if(!ack?.err)markSynced()})}catch{}}
+setInterval(syncLocalData,15000);
 
 async function hashPassword(pass){const data=new TextEncoder().encode(`omni-pos:${pass}`),buf=await crypto.subtle.digest('SHA-256',data);return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('')}
 function validAccount(meta){return meta&&meta.vendorId?{alias:meta.alias||'',role:meta.role||'employee',vendorId:meta.vendorId,employeeId:meta.employeeId||'',tempPassHash:meta.tempPassHash||'',mustChangePassword:meta.mustChangePassword===true}:null}
@@ -262,7 +267,7 @@ function fetchAccount(alias,cb,tries=10){
     }catch{recoverAccountFromVendors(alias,cb)}
   },{wait:500});
 }
-function beginVendorSession(alias,meta,temp=false){state.alias=alias;state.role=meta.role||'employee';state.vendorId=meta.vendorId;state.tempAuth=temp;state.mustChangePassword=meta.mustChangePassword===true;showApp('vendor');if(state.mustChangePassword)setTimeout(()=>{goView('settings');toast('Use the temporary password as current password, then set your new password.','success')},500)}
+function beginVendorSession(alias,meta,temp=false){state.alias=alias;state.role=meta.role||'employee';state.vendorId=meta.vendorId;state.tempAuth=temp;state.mustChangePassword=meta.mustChangePassword===true;if($('#keepSignedIn')?.checked!==false)localStorage.setItem(SESSION_KEY,JSON.stringify({alias,stateRole:state.role,vendorId:state.vendorId,tempAuth:temp,mustChangePassword:state.mustChangePassword,at:Date.now()}));showApp('vendor');if(state.mustChangePassword)setTimeout(()=>{goView('settings');toast('Use the temporary password as current password, then set your new password.','success')},500)}
 function tryTempLogin(alias,pass,cb,tries=4){
   root.get('accounts').get(alias).once(async meta=>{
     const linked=validAccount(meta);
@@ -273,7 +278,8 @@ function tryTempLogin(alias,pass,cb,tries=4){
 }
 
 // Restore session on reload (important inside a Bubble iframe where refreshes are common)
-user.recall({sessionStorage:true});
+user.recall({localStorage:true});
+try{const saved=JSON.parse(localStorage.getItem(SESSION_KEY)||'null');if(saved?.alias&&saved?.vendorId)setTimeout(()=>fetchAccount(saved.alias,meta=>beginVendorSession(saved.alias,meta||{role:saved.stateRole,vendorId:saved.vendorId,mustChangePassword:saved.mustChangePassword},saved.tempAuth)),800)}catch{}
 gun.on('auth',()=>{
   if(manualAuth||state.alias)return;
   const alias=user.is&&user.is.alias;
@@ -357,6 +363,7 @@ $('#loginForm').onsubmit=e=>{
   e.preventDefault();manualAuth=true;
   const btn=e.target.querySelector('button[type="submit"]');btn.disabled=true;
   const alias=$('#loginAlias').value.trim().toLowerCase(),pass=$('#loginPassword').value;
+  localStorage.setItem('omni_pos_keep_signed_in',$('#keepSignedIn').checked?'1':'0');
   user.auth(alias,pass,ack=>{
     if(ack.err)return tryTempLogin(alias,pass,meta=>{btn.disabled=false;if(!meta)return toast(ack.err,'error');beginVendorSession(alias,meta,true);toast('Signed in with temporary password','success')});
     fetchAccount(alias,meta=>{
@@ -366,7 +373,8 @@ $('#loginForm').onsubmit=e=>{
     });
   });
 };
-$('#logoutBtn').onclick=()=>{try{user.leave()}catch{}location.reload()};
+try{$('#keepSignedIn').checked=localStorage.getItem('omni_pos_keep_signed_in')!=='0'}catch{}
+$('#logoutBtn').onclick=()=>{try{user.leave()}catch{}try{localStorage.removeItem(SESSION_KEY);localStorage.removeItem('gun/')}catch{}location.reload()};
 
 async function loadVendorData(){if(!state.vendorId)return;const v=root.get('vendors').get(state.vendorId);v.on(d=>{if(d){state.profile=cleanGun(d);renderProfileForm();renderReadiness();renderDashboard();publishPublicVendor()}});v.get('products').map().on((d,k)=>{upsert(state.products,d,k);renderProducts();renderPos();renderDashboard();publishPublicVendor()});v.get('branches').map().on((d,k)=>{upsert(state.branches,d,k);renderBranches();renderBranchSelect();renderDashboard();renderReadiness()});v.get('employees').map().on((d,k)=>{upsert(state.employees,d,k);renderEmployees()});subscribeOrders();subscribeAdminChat();loadAllVendors();}
 function upsert(arr,d,k){const i=arr.findIndex(x=>x.id===(d?.id||k));if(!d){if(i>=0)arr.splice(i,1);return}const row={...cleanGun(d),id:d.id||k};if(i>=0)arr[i]=row;else arr.push(row)}
@@ -511,7 +519,7 @@ async function loadMarketplace(){
 function myOrderIds(){try{const a=JSON.parse(localStorage.getItem('omni_customer_orders')||'[]');return Array.isArray(a)?a:[]}catch{return[]}}
 function customerId(){let id=localStorage.getItem('omni_customer_id');if(!id){id=uid('customer');localStorage.setItem('omni_customer_id',id)}return id}
 function savedCustomer(){try{return JSON.parse(localStorage.getItem('omni_customer_profile')||'{}')||{}}catch{return{}}}
-function saveCustomerProfile(p){localStorage.setItem('omni_customer_profile',JSON.stringify(p));root.get('customers').get(p.id).put({...p,updatedAt:Date.now()})}
+function saveCustomerProfile(p){localStorage.setItem('omni_customer_profile',JSON.stringify(p));root.get('customers').get(p.id).put({...p,updatedAt:Date.now()},ack=>{if(!ack?.err)markSynced()});syncLocalData()}
 $('#locateCustomer').onclick=()=>getLocation().then(x=>{state.customerLocation=x;renderMarketplaceCards();renderCustomerMap();toast('Location updated','success')}).catch(e=>toast(e.message,'error'));
 let dropMode=false;
 $('#dropCustomerLocation').onclick=()=>{dropMode=true;toast('Tap the map to drop your location','success');if(!state.maps.customer)renderCustomerMap()};
