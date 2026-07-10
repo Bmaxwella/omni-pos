@@ -187,10 +187,9 @@ window.addEventListener('unhandledrejection',e=>criticalError(e.reason?.message|
 await ensureLibraries();
 const APP_ROOT='omni-pos-v1';
 const RELAY_KEY='omni_pos_peers';
-const PRIMARY_RELAY='https://relay.peer.ooo/gun';
+const PRIMARY_RELAY='https://peer.wallie.io/gun';
 const DEFAULT_PEERS=[PRIMARY_RELAY];
 const LEGACY_PEERS=['https://gun-manhattan.herokuapp.com/gun',
-    'https://peer.wallie.io/gun',
     'https://gundb-relay-mlccl.ondigitalocean.app/gun',
     'https://gun.defucc.me/gun',
     'https://a.talkflow.team/gun'];
