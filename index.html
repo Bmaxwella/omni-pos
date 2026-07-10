@@ -186,10 +186,15 @@ window.addEventListener('error',e=>{if(e.error||e.message)criticalError(e.messag
 window.addEventListener('unhandledrejection',e=>criticalError(e.reason?.message||e.reason||'A browser error stopped the app.'));
 await ensureLibraries();
 const APP_ROOT='omni-pos-v1';
-const RELAY_KEY='omni_pos_peers';
-const PRIMARY_RELAY='https://relay.peer.ooo/gun';
-const DEFAULT_PEERS=[PRIMARY_RELAY];
-const LEGACY_PEERS=['https://gun-manhattan.herokuapp.com/gun','https://gun-us.herokuapp.com/gun'];
+const PRIVATE_RELAY='';
+const peers=[
+  ...(PRIVATE_RELAY?[PRIVATE_RELAY]:[]),
+  'https://gun-manhattan.herokuapp.com/gun',
+  'https://peer.wallie.io/gun',
+  'https://gundb-relay-mlccl.ondigitalocean.app/gun',
+  'https://gun.defucc.me/gun',
+  'https://a.talkflow.team/gun'
+];
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const uid=(p='id')=>`${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,9)}`;
 const money=n=>`BHD ${Number(n||0).toFixed(3)}`;
@@ -197,17 +202,7 @@ const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const cleanGun=o=>{if(!o||typeof o!=='object')return o;const out={};Object.keys(o).forEach(k=>{if(k!=='_'&&o[k]!==null&&typeof o[k]!=='object')out[k]=o[k]});return out};
 const readList=node=>new Promise(resolve=>{const rows=[];node.map().once((d,k)=>{if(d){rows.push({...cleanGun(d),id:d.id||k})}});setTimeout(()=>resolve(rows),900)});
 const state={mode:'guest',role:'customer',alias:'',vendorId:'',profile:{},products:[],branches:[],employees:[],orders:[],vendors:[],publicVendors:[],adminMessages:[],cart:[],posCart:[],customerLocation:null,currentVendor:null,maps:{},markers:[]};
-function getSavedPeers(){
-  let saved=null;
-  try{saved=JSON.parse(localStorage.getItem(RELAY_KEY)||'null')}catch{}
-  if(!Array.isArray(saved)||!saved.length)saved=DEFAULT_PEERS;
-  saved=saved.map(x=>String(x||'').trim()).filter(Boolean);
-  const onlyLegacy=saved.length&&saved.every(x=>LEGACY_PEERS.includes(x));
-  if(onlyLegacy)saved=DEFAULT_PEERS;
-  return [...new Set([PRIMARY_RELAY,...saved.filter(x=>x!==PRIMARY_RELAY)])];
-}
-let peers=getSavedPeers();
-localStorage.setItem(RELAY_KEY,JSON.stringify(peers));
+try{localStorage.removeItem('omni_pos_peers');localStorage.removeItem('omni_pos_peers_version')}catch{}
 let gun=Gun({peers,localStorage:true,retry:Infinity});
 let user=gun.user();
 let root=gun.get(APP_ROOT);
@@ -222,13 +217,15 @@ L.Icon.Default.mergeOptions({
 });
 
 function toast(msg,type=''){const el=document.createElement('div');el.className=`toast ${type}`;el.textContent=msg;$('#toastStack').appendChild(el);setTimeout(()=>el.remove(),3600)}
+const connectedRelays=new Set();
+function peerName(peer){return String(peer?.url||peer?.wire?.url||peer||'relay').replace(/^https?:\/\//,'').replace(/^wss?:\/\//,'')}
 function setConnection(ok,text){$('#connectionDot').classList.toggle('online',ok);$('#connectionText').textContent=text}
-function syncGunHeartbeat(source='boot'){try{root.get('_health').get('last').put({app:'OMNI POS',source,at:Date.now(),relay:peers[0]})}catch{}}
-setConnection(false,`Connecting to ${peers[0].replace(/^https?:\/\//,'')}`);
-gun.on('hi',()=>{setConnection(true,`Connected to ${peers[0].replace(/^https?:\/\//,'')}`);syncGunHeartbeat('relay')});
-gun.on('bye',()=>setConnection(false,'Relay reconnecting; local graph active'));
+function syncGunHeartbeat(source='boot'){try{root.get('_health').get('last').put({app:'OMNI POS',source,at:Date.now(),relays:[...connectedRelays],peers})}catch{}}
+setConnection(false,`Connecting to ${peers.length} online relays`);
+gun.on('hi',peer=>{connectedRelays.add(peerName(peer));setConnection(true,`Online sync active · ${connectedRelays.size} relay${connectedRelays.size===1?'':'s'}`);syncGunHeartbeat('relay')});
+gun.on('bye',peer=>{connectedRelays.delete(peerName(peer));setConnection(connectedRelays.size>0,connectedRelays.size?`Online sync active · ${connectedRelays.size} relay${connectedRelays.size===1?'':'s'}`:'No relay connection; local cache only')});
 syncGunHeartbeat('boot');
-setTimeout(()=>{if(!$('#connectionDot').classList.contains('online'))setConnection(false,'Still retrying relay; local graph active')},4500);
+setTimeout(()=>{if(!connectedRelays.size)setConnection(false,'No online relay connection; data is local only')},6500);
 function syncPresence(){try{root.get('presence').get(sessionId).put({id:sessionId,mode:state.mode,role:state.role,alias:state.alias||'',vendorId:state.vendorId||'',customerId:localStorage.getItem('omni_customer_id')||'',view:document.querySelector('.view.active')?.id||'',online:true,updatedAt:Date.now()})}catch{}}
 setInterval(syncPresence,15000);
 
