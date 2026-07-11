@@ -13,7 +13,7 @@
       'https://a.talkflow.team/gun'
     ],
     collections: [
-      'users','vendors','vendorUsers','employees','branches','products','productOptions',
+      'users','vendors','publicVendors','vendorUsers','employees','branches','products','productOptions',
       'productCodes','qrCodes','images','customers','customerLocations',
       'customerVendorProfiles','vendorCreditSettings','creditAccounts',
       'creditTransactions','orders','orderItems','payments','employeeShifts',

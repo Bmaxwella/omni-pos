@@ -30,7 +30,8 @@
         <div class="mobile-tabs" data-nav><button class="btn primary" data-view="dashboard">Dashboard</button><button class="btn" data-view="pos">POS</button><button class="btn" data-view="orders">Orders</button><button class="btn" data-view="products">Products</button><button class="btn" data-view="customers">Credit</button></div>
         <header class="top">
           <div class="search"><span>⌕</span><input id="search" placeholder="Search products, orders, customers"></div>
-          <button id="loginOwnerBtn" class="btn">Demo owner</button>
+          <span id="userMode" class="pill">Vendor</span>
+          <button id="logoutBtn" class="btn ghost">Switch user</button>
           <button id="checkShiftBtn" class="btn primary">Check in</button>
         </header>
         <section class="content">
