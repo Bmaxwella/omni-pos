@@ -4,6 +4,7 @@
   const POS = {
     cart: [],
     add(product){
+      if(!product || !product.id) return;
       const line = POS.cart.find(x => x.productId === product.id);
       if(line) line.qty += 1;
       else POS.cart.push({productId:product.id, name:product.name, price:Number(product.price||0), qty:1});

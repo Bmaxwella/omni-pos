@@ -27,7 +27,7 @@
         <div class="sync"><span id="syncDot" class="dot"></span><span id="syncText">Connecting to GUN</span></div>
       </aside>
       <main class="main">
-        <div class="mobile-tabs" data-nav><button class="btn primary" data-view="dashboard">Dashboard</button><button class="btn" data-view="pos">POS</button><button class="btn" data-view="orders">Orders</button><button class="btn" data-view="products">Products</button><button class="btn" data-view="customers">Credit</button></div>
+        <div class="mobile-tabs" data-nav><button class="btn primary" data-view="dashboard">Dashboard</button><button class="btn" data-view="pos">POS</button><button class="btn" data-view="orders">Orders</button><button class="btn" data-view="products">Products</button><button class="btn" data-view="customers">Credit</button><button class="btn" data-view="employees">Employees</button><button class="btn" data-view="attendance">Attendance</button><button class="btn" data-view="settings">Settings</button></div>
         <header class="top">
           <div class="search"><span>⌕</span><input id="search" placeholder="Search products, orders, customers"></div>
           <span id="userMode" class="pill">Vendor</span>
