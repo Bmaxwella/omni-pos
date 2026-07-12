@@ -9,7 +9,7 @@
     connectedRelays: new Set(),
     cache: Object.fromEntries(config.collections.map(name => [name, []])),
     listeners: {},
-    status: {online:false, count:0, text:'Connecting to relays'}
+    status: {online:false, count:0, text:'Connecting securely'}
   };
 
   function peerName(peer){
@@ -30,14 +30,14 @@
     state.root = state.gun.get(config.appRoot);
     state.gun.on('hi', peer => {
       state.connectedRelays.add(peerName(peer));
-      report({online:true, count:state.connectedRelays.size, text:`Synced · ${state.connectedRelays.size} relay${state.connectedRelays.size===1?'':'s'}`});
+      report({online:true, count:state.connectedRelays.size, text:'All changes saved'});
     });
     state.gun.on('bye', peer => {
       state.connectedRelays.delete(peerName(peer));
-      report({online:state.connectedRelays.size > 0, count:state.connectedRelays.size, text:state.connectedRelays.size ? `Synced · ${state.connectedRelays.size} relays` : 'Offline · changes stay on this device'});
+      report({online:state.connectedRelays.size > 0, count:state.connectedRelays.size, text:state.connectedRelays.size ? 'All changes saved' : 'Offline · changes will sync later'});
     });
     setTimeout(() => {
-      if(!state.connectedRelays.size) report({online:false,count:0,text:'Offline · changes stay on this device'});
+      if(!state.connectedRelays.size) report({online:false,count:0,text:'Offline · changes will sync later'});
     }, 6500);
     return state;
   }
@@ -63,13 +63,15 @@
 
   function subscribe(collection, callback, options={}){
     if(!config.collections.includes(collection)) throw new Error(`Unknown collection: ${collection}`);
-    const listenerKey = `${collection}:${options.includeDeleted === true}`;
+    const listenerKey = `${collection}:${options.includeDeleted === true}:${options.scopeKey || 'all'}`;
     if(state.listeners[listenerKey]) return state.listeners[listenerKey];
     const chain = node(collection).map();
     const handler = (data, key) => {
+      const clean = data ? {...utils.cleanGun(data), id:data.id || key} : null;
+      if(clean && typeof options.accept === 'function' && !options.accept(clean, key)) return;
       upsertCache(collection, data, key);
       const rows = (state.cache[collection] || []).filter(row => options.includeDeleted || row.deleted !== true);
-      callback?.(rows, data ? {...utils.cleanGun(data), id:data.id || key} : null, key);
+      callback?.(rows, clean, key);
     };
     chain.on(handler);
     const unsubscribe = () => { chain.off(); delete state.listeners[listenerKey]; };
@@ -98,7 +100,7 @@
       const timer = setTimeout(() => {
         if(settled) return;
         settled = true;
-        reject(new Error('The database did not confirm this write. Check the relay connection and try again.'));
+        reject(new Error('Your change could not be confirmed. Check your connection and try again.'));
       }, 12000);
       node(collection, currentId).put(row, ack => {
         if(settled) return;

@@ -10,32 +10,32 @@
     setTimeout(() => el.remove(), 3600);
   }
 
-  function shell(){
+  function shell(user={}){
+    const driver = user.role === 'driver';
+    const navItems = driver
+      ? [['deliveries','Deliveries'],['attendance','My attendance']]
+      : [['dashboard','Dashboard'],['pos','POS Sale'],['orders','Orders'],['products','Products'],['customers','Customers & Credit'],['employees','Employees'],['attendance','Attendance'],['settings','Settings']];
+    const defaultView = driver ? 'deliveries' : 'dashboard';
+    const nav = navItems.map(([view,label],index)=>`<button class="${index===0?'active':''}" data-view="${view}">${label}</button>`).join('');
+    const mobileNav = navItems.map(([view,label],index)=>`<button class="btn ${index===0?'primary':''}" data-view="${view}">${label}</button>`).join('');
     document.getElementById('app').innerHTML = `
       <aside class="side">
         <div class="brand"><div class="brand-mark">OM</div><div>OMNI<br><span class="muted">VENDOR</span></div></div>
-        <nav class="nav" data-nav>
-          <button class="active" data-view="dashboard">Dashboard</button>
-          <button data-view="pos">POS Sale</button>
-          <button data-view="orders">Orders</button>
-          <button data-view="products">Products</button>
-          <button data-view="customers">Customers & Credit</button>
-          <button data-view="employees">Employees</button>
-          <button data-view="attendance">Attendance</button>
-          <button data-view="settings">Settings</button>
-        </nav>
-        <div class="sync"><span id="syncDot" class="dot"></span><span id="syncText">Connecting to GUN</span></div>
+        <nav class="nav" data-nav>${nav}</nav>
+        <div class="sync"><span id="syncDot" class="dot"></span><span id="syncText">Connecting securely</span></div>
       </aside>
       <main class="main">
-        <div class="mobile-tabs" data-nav><button class="btn primary" data-view="dashboard">Dashboard</button><button class="btn" data-view="pos">POS</button><button class="btn" data-view="orders">Orders</button><button class="btn" data-view="products">Products</button><button class="btn" data-view="customers">Credit</button><button class="btn" data-view="employees">Employees</button><button class="btn" data-view="attendance">Attendance</button><button class="btn" data-view="settings">Settings</button></div>
+        <div id="orderAlert" class="order-alert" role="alert" aria-live="assertive"></div>
+        <div class="mobile-tabs" data-nav>${mobileNav}</div>
         <header class="top">
-          <div class="search"><span>⌕</span><input id="search" placeholder="Search products, orders, customers"></div>
-          <span id="userMode" class="pill">Vendor</span>
+          <div class="search"><span>⌕</span><input id="search" placeholder="${driver?'Search deliveries, customers, addresses':'Search products, orders, customers'}"></div>
+          <span id="userMode" class="pill">${driver?'Driver':'Vendor'}</span>
           <button id="logoutBtn" class="btn ghost">Switch user</button>
           <button id="checkShiftBtn" class="btn primary">Check in</button>
         </header>
         <section class="content">
-          <div id="dashboard" class="view active"></div>
+          <div id="dashboard" class="view ${defaultView==='dashboard'?'active':''}"></div>
+          <div id="deliveries" class="view ${defaultView==='deliveries'?'active':''}"></div>
           <div id="pos" class="view"></div>
           <div id="orders" class="view"></div>
           <div id="products" class="view"></div>

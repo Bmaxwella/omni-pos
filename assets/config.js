@@ -3,7 +3,7 @@
 
   global.OmniConfig = {
     appRoot: 'omni-v2',
-    schemaVersion: 1,
+    schemaVersion: 3,
     currency: 'BHD',
     peers: [
       'https://gun-manhattan.herokuapp.com/gun',

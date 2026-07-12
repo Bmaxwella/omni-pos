@@ -63,13 +63,15 @@
 
   function subscribe(collection, callback, options={}){
     if(!config.collections.includes(collection)) throw new Error(`Unknown collection: ${collection}`);
-    const listenerKey = `${collection}:${options.includeDeleted === true}`;
+    const listenerKey = `${collection}:${options.includeDeleted === true}:${options.scopeKey || 'all'}`;
     if(state.listeners[listenerKey]) return state.listeners[listenerKey];
     const chain = node(collection).map();
     const handler = (data, key) => {
+      const clean = data ? {...utils.cleanGun(data), id:data.id || key} : null;
+      if(clean && typeof options.accept === 'function' && !options.accept(clean, key)) return;
       upsertCache(collection, data, key);
       const rows = (state.cache[collection] || []).filter(row => options.includeDeleted || row.deleted !== true);
-      callback?.(rows, data ? {...utils.cleanGun(data), id:data.id || key} : null, key);
+      callback?.(rows, clean, key);
     };
     chain.on(handler);
     const unsubscribe = () => { chain.off(); delete state.listeners[listenerKey]; };

@@ -5,8 +5,8 @@
     superadmin: ['*'],
     vendor_owner: ['vendor.*','products.*','orders.*','pos.use','credit.*','employees.*','attendance.*','financials.read','reports.read','chat.*'],
     manager: ['products.*','orders.*','pos.use','credit.read','credit.payment','employees.read','attendance.read','reports.read','chat.*'],
-    cashier: ['products.read','orders.read','orders.update_status','pos.use','credit.read','credit.charge','attendance.self','chat.read'],
-    driver: ['orders.read','orders.delivery','attendance.self','chat.read'],
+    cashier: ['products.read','orders.read','orders.update_status','orders.delivery_dispatch','pos.use','credit.read','credit.charge','attendance.self','chat.read'],
+    driver: ['orders.read','orders.delivery','credit.read','credit.charge','payments.delivery','attendance.self','chat.read'],
     customer: ['market.read','orders.create','orders.own','credit.own','profile.own'],
     guest: ['market.read','orders.create']
   };
