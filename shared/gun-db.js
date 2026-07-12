@@ -107,7 +107,6 @@
     const {collection, callback, options} = subscription;
     if(state.hydrationRuns.has(collection)) return state.hydrationRuns.get(collection);
     const run = (async () => {
-      const firstHydration = !state.hydrated.has(collection);
       const discovered = new Map();
       const collect = (data, key) => {
         if(!data) return;
@@ -123,7 +122,6 @@
       discovered.forEach(row => {
         upsertCache(collection, row, row.id);
         rememberId(collection, row.id, row.updatedAt);
-        if(firstHydration) node(collection, row.id).put(row);
       });
       state.hydrated.add(collection);
       callback?.(visibleRows(collection, options), null, null, {hydrated:true, count:discovered.size});
@@ -212,7 +210,34 @@
     const cached = (state.cache[collection] || []).find(row => row.id === id);
     const existing = cached || await directRecord(collection, id, 5000);
     if(!existing) throw new Error(`Cannot update missing record: ${collection}/${id}`);
-    return put(collection, id, {...existing, ...changes, id, createdAt:existing.createdAt}, meta);
+    const now = Date.now();
+    const delta = {
+      ...changes,
+      id,
+      schemaVersion: config.schemaVersion,
+      updatedAt: now,
+      updatedBy: meta.userId || changes.updatedBy || existing.updatedBy || ''
+    };
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if(settled) return;
+        settled = true;
+        reject(new Error('The database did not confirm this update. Check the connection and try again.'));
+      }, 12000);
+      node(collection, id).put(delta, ack => {
+        if(settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if(ack?.err) reject(new Error(String(ack.err)));
+        else {
+          const row = {...existing, ...delta};
+          upsertCache(collection, row, id);
+          rememberId(collection, id, now);
+          resolve({ack, row});
+        }
+      });
+    });
   }
 
   async function softDelete(collection, id, meta={}){
