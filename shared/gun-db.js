@@ -12,7 +12,7 @@
     subscriptions: new Map(),
     hydrated: new Set(),
     hydrationRuns: new Map(),
-    status: {online:false, count:0, text:'Connecting to relays'}
+    status: {online:false, count:0, text:'Connecting securely'}
   };
 
   function peerName(peer){
@@ -38,7 +38,7 @@
     });
     state.gun.on('bye', peer => {
       state.connectedRelays.delete(peerName(peer));
-      report({online:state.connectedRelays.size > 0, count:state.connectedRelays.size, text:state.connectedRelays.size ? `Synced · ${state.connectedRelays.size} relays` : 'Offline · changes stay on this device'});
+      report({online:state.connectedRelays.size > 0, count:state.connectedRelays.size, text:state.connectedRelays.size ? 'Connected · changes sync automatically' : 'Offline · changes stay on this device'});
     });
     setTimeout(() => {
       if(!state.connectedRelays.size) report({online:false,count:0,text:'Offline · changes stay on this device'});

@@ -5,13 +5,7 @@
     appRoot: 'omni-v2',
     schemaVersion: 3,
     currency: 'BHD',
-    peers: [
-      'https://gun-manhattan.herokuapp.com/gun',
-      'https://peer.wallie.io/gun',
-      'https://gundb-relay-mlccl.ondigitalocean.app/gun',
-      'https://gun.defucc.me/gun',
-      'https://a.talkflow.team/gun'
-    ],
+    peers: ['https://relay.omni-society.com/gun'],
     collections: [
       'users','vendors','publicVendors','vendorUsers','employees','branches','products','productOptions',
       'productCodes','qrCodes','images','customers','customerLocations',
