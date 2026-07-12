@@ -118,6 +118,28 @@
     document.getElementById('barcodeScannerModal')?.remove();
   }
 
+  function playScanSuccessTone(){
+    try {
+      const AudioEngine = global.AudioContext || global.webkitAudioContext;
+      if(!AudioEngine) return;
+      const context = audioContext || new AudioEngine();
+      if(!audioContext) audioContext = context;
+      const now = context.currentTime;
+      [1046, 1568].forEach((frequency, index) => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(frequency, now + index * .08);
+        gain.gain.setValueAtTime(.0001, now + index * .08);
+        gain.gain.exponentialRampToValueAtTime(.24, now + index * .08 + .01);
+        gain.gain.exponentialRampToValueAtTime(.0001, now + index * .08 + .1);
+        oscillator.connect(gain).connect(context.destination);
+        oscillator.start(now + index * .08);
+        oscillator.stop(now + index * .08 + .11);
+      });
+    } catch {}
+  }
+
   async function startBarcodeScanner(onDetected){
     stopBarcodeScanner();
     if(!navigator.mediaDevices?.getUserMedia) return UI.toast('Camera scanning is unavailable. Enter the barcode or SKU manually','bad');
@@ -132,6 +154,7 @@
     const finish = value => {
       const code = String(value || '').trim();
       if(!code) return;
+      playScanSuccessTone();
       stopBarcodeScanner();
       onDetected(code);
       UI.toast(`Barcode detected: ${code}`,'ok');
@@ -519,8 +542,17 @@
   }
 
   function renderDeliveries(){
-    if(!can('orders.delivery')) { document.getElementById('deliveries').innerHTML=permissionGate('This account is not assigned to delivery work.'); return; }
+    const isDriver=currentUser?.role==='driver';
+    if(isDriver&&!can('orders.delivery')) { document.getElementById('deliveries').innerHTML=permissionGate('This account is not assigned to delivery work.'); return; }
+    if(!isDriver&&!can('orders.read')&&!can('orders.*')&&!can('vendor.*')) { document.getElementById('deliveries').innerHTML=permissionGate('This role cannot view delivery records.'); return; }
     const assignments=mine('deliveryAssignments');
+    const history=assignments.filter(item=>item.status==='delivered'&&(!isDriver||item.driverUserId===userId())).sort((a,b)=>Number(b.deliveredAt||b.updatedAt||0)-Number(a.deliveredAt||a.updatedAt||0));
+    const historyTable=UI.table(history,[{key:'orderId',label:'Order'},{key:'customerName',label:'Customer'},{key:'driverName',label:'Driver'},{key:'deliveredAt',label:'Delivered',format:r=>r.deliveredAt?new Date(Number(r.deliveredAt)).toLocaleString():'-'},{key:'total',label:'Total',format:r=>U.money(r.total)}]);
+    if(!isDriver){
+      const activeRows=assignments.filter(item=>['available','accepted','picked_up'].includes(item.status)).sort((a,b)=>Number(b.updatedAt||0)-Number(a.updatedAt||0));
+      document.getElementById('deliveries').innerHTML=`<div class="grid cols-3">${UI.stat('Awaiting driver',activeRows.filter(item=>item.status==='available').length)}${UI.stat('Out for delivery',activeRows.filter(item=>['accepted','picked_up'].includes(item.status)).length,{text:'live',cls:'ok'})}${UI.stat('Completed deliveries',history.length)}</div><section class="card pad"><div class="head"><h2>Active deliveries</h2><span class="pill">${activeRows.length} active</span></div>${UI.table(activeRows,[{key:'orderId',label:'Order'},{key:'customerName',label:'Customer'},{key:'customerPhone',label:'Phone'},{key:'driverName',label:'Driver'},{key:'status',label:'Status'}])}</section><section class="card pad"><div class="head"><h2>Delivery history</h2><span class="pill">${history.length} completed</span></div>${historyTable}</section>`;
+      return;
+    }
     const available=assignments.filter(item=>item.status==='available').filter(item=>{const order=mine('orders').find(row=>row.id===item.orderId);return order&&matchesTerm(order,['id','customerName','customerPhone','customerAddress']);});
     const active=activeDriverAssignment();
     if(active) driverSelectedOrderId=active.orderId;
@@ -528,7 +560,7 @@
     const order=selected&&mine('orders').find(item=>item.id===selected.orderId);
     const items=order?mine('orderItems').filter(item=>item.orderId===order.id):[];
     const destination=order&&Number(order.customerLat)&&Number(order.customerLng)?`${Number(order.customerLat)},${Number(order.customerLng)}`:'';
-    document.getElementById('deliveries').innerHTML=`<div class="driver-workspace"><section class="card driver-queue"><div class="driver-section-head"><div><span class="eyebrow">Driver queue</span><h1>Deliveries</h1></div><span class="pill ${available.length?'warn':'ok'}">${available.length} available</span></div><div class="delivery-list">${available.map(item=>{const row=mine('orders').find(order=>order.id===item.orderId)||{};return `<button class="delivery-list-item ${selected?.id===item.id?'active':''}" data-select-delivery="${U.esc(item.orderId)}"><strong>${U.esc(row.customerName||'Customer')}</strong><span>${U.esc(row.customerAddress||'Location pin')}</span><b>${U.money(row.total)}</b></button>`;}).join('')||'<div class="pos-empty"><strong>No deliveries waiting</strong><span>Prepared orders will appear here automatically.</span></div>'}</div></section><section class="card driver-detail">${order?`<div class="driver-section-head"><div><span class="eyebrow">${active?'Active delivery':'Delivery details'}</span><h2>${U.esc(order.customerName||'Customer')}</h2></div><span class="pill ${active?'ok':'warn'}">${U.esc(active?'Tracking live':'Available')}</span></div><div class="driver-customer"><div><span>Phone</span><a href="tel:${U.esc(order.customerPhone||'')}">${U.esc(order.customerPhone||'Not provided')}</a></div><div><span>Address</span><b>${U.esc(order.customerAddress||'Pinned location')}</b></div><div><span>Order</span><b>${items.map(item=>`${item.nameSnapshot||'Item'} × ${item.qty||0}`).join(', ')||order.id}</b></div><div><span>Amount</span><b>${U.money(order.total)}</b></div></div>${destination?`<div id="driverRouteMap" class="driver-route-map"></div>`:'<div class="empty">This order has no map coordinates. Use the written address and contact the customer.</div>'}<div class="driver-actions">${!active?`<button class="btn primary" data-accept-delivery="${U.esc(selected.id)}">Accept delivery</button>`:`<button class="btn" id="resumeTrackingBtn">Resume live tracking</button><a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}">Open navigation</a><div class="field"><label>Payment on delivery</label><select id="deliveryPaymentMethod"><option value="cash" ${order.paymentMethod==='cash'?'selected':''}>Cash</option><option value="benefit" ${order.paymentMethod==='benefit'?'selected':''}>Benefit</option><option value="card" ${order.paymentMethod==='card'?'selected':''}>Card</option><option value="credit" ${order.paymentMethod==='credit'?'selected':''}>Approved credit</option></select></div><button class="btn primary" data-complete-delivery="${U.esc(active.id)}">Complete delivery</button>`}</div>`:'<div class="pos-empty"><strong>Select a delivery</strong><span>Customer and route details will appear here.</span></div>'}</section></div>`;
+    document.getElementById('deliveries').innerHTML=`<div class="driver-workspace"><section class="card driver-queue"><div class="driver-section-head"><div><span class="eyebrow">Driver queue</span><h1>Deliveries</h1></div><span class="pill ${available.length?'warn':'ok'}">${available.length} available</span></div><div class="delivery-list">${available.map(item=>{const row=mine('orders').find(order=>order.id===item.orderId)||{};return `<button class="delivery-list-item ${selected?.id===item.id?'active':''}" data-select-delivery="${U.esc(item.orderId)}"><strong>${U.esc(row.customerName||'Customer')}</strong><span>${U.esc(row.customerAddress||'Location pin')}</span><b>${U.money(row.total)}</b></button>`;}).join('')||'<div class="pos-empty"><strong>No deliveries waiting</strong><span>Prepared orders will appear here automatically.</span></div>'}</div></section><section class="card driver-detail">${order?`<div class="driver-section-head"><div><span class="eyebrow">${active?'Active delivery':'Delivery details'}</span><h2>${U.esc(order.customerName||'Customer')}</h2></div><span class="pill ${active?'ok':'warn'}">${U.esc(active?'Tracking live':'Available')}</span></div><div class="driver-customer"><div><span>Phone</span><a href="tel:${U.esc(order.customerPhone||'')}">${U.esc(order.customerPhone||'Not provided')}</a></div><div><span>Address</span><b>${U.esc(order.customerAddress||'Pinned location')}</b></div><div><span>Order</span><b>${items.map(item=>`${item.nameSnapshot||'Item'} × ${item.qty||0}`).join(', ')||order.id}</b></div><div><span>Amount</span><b>${U.money(order.total)}</b></div></div>${destination?`<div id="driverRouteMap" class="driver-route-map"></div>`:'<div class="empty">This order has no map coordinates. Use the written address and contact the customer.</div>'}<div class="driver-actions">${!active?`<button class="btn primary" data-accept-delivery="${U.esc(selected.id)}">Accept delivery</button>`:`<button class="btn" id="resumeTrackingBtn">Resume live tracking</button><a class="btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}">Open navigation</a><div class="field"><label>Payment on delivery</label><select id="deliveryPaymentMethod"><option value="cash" ${order.paymentMethod==='cash'?'selected':''}>Cash</option><option value="benefit" ${order.paymentMethod==='benefit'?'selected':''}>Benefit</option><option value="card" ${order.paymentMethod==='card'?'selected':''}>Card</option><option value="credit" ${order.paymentMethod==='credit'?'selected':''}>Approved credit</option></select></div><button class="btn primary" data-complete-delivery="${U.esc(active.id)}">Complete delivery</button>`}</div>`:'<div class="pos-empty"><strong>Select a delivery</strong><span>Customer and route details will appear here.</span></div>'}</section></div><section class="card pad delivery-history"><div class="head"><h2>My delivery history</h2><span class="pill">${history.length} completed</span></div>${historyTable}</section>`;
     document.querySelectorAll('[data-select-delivery]').forEach(btn=>btn.onclick=()=>{driverSelectedOrderId=btn.dataset.selectDelivery;renderDeliveries();});
     document.querySelectorAll('[data-accept-delivery]').forEach(btn=>btn.onclick=()=>acceptDelivery(btn.dataset.acceptDelivery));
     document.querySelectorAll('[data-complete-delivery]').forEach(btn=>btn.onclick=()=>completeDelivery(btn.dataset.completeDelivery));
@@ -883,7 +915,14 @@
   function renderAttendance(){
     if(!can('attendance.read') && !can('attendance.self')) { document.getElementById('attendance').innerHTML = permissionGate('This role cannot view attendance.'); return; }
     const shifts = mine('employeeShifts').filter(s=>can('attendance.read') || s.userId===userId()).sort((a,b)=>Number(b.checkInAt||0)-Number(a.checkInAt||0));
-    document.getElementById('attendance').innerHTML = `<div class="card pad"><div class="head"><h2>Attendance</h2><span class="pill">${shifts.length} records</span></div>${UI.table(shifts, [{key:'employeeId',label:'Employee'}, {key:'status',label:'Status'}, {key:'checkInAt',label:'Check in',format:r=>r.checkInAt?new Date(Number(r.checkInAt)).toLocaleString():'-'}, {key:'checkOutAt',label:'Check out',format:r=>r.checkOutAt?new Date(Number(r.checkOutAt)).toLocaleString():'-'}])}</div>`;
+    const now=Date.now();
+    const duration=shift=>Math.max(0,(Number(shift.checkOutAt)||now)-Number(shift.checkInAt||now));
+    const totalMs=shifts.reduce((sum,shift)=>sum+duration(shift),0);
+    const dayKeys=[...new Set(shifts.filter(shift=>shift.checkInAt).map(shift=>U.todayKey(Number(shift.checkInAt))))];
+    const chartDays=Array.from({length:14},(_,index)=>{const date=new Date();date.setHours(0,0,0,0);date.setDate(date.getDate()-(13-index));const key=U.todayKey(date.getTime());const hours=shifts.filter(shift=>U.todayKey(Number(shift.checkInAt||0))===key).reduce((sum,shift)=>sum+duration(shift),0)/3600000;return {label:date.toLocaleDateString(undefined,{weekday:'short'}),hours};});
+    const maxHours=Math.max(1,...chartDays.map(day=>day.hours));
+    const employeeName=shift=>mine('employees').find(employee=>employee.id===shift.employeeId)?.name||rows('users').find(user=>user.id===shift.userId)?.displayName||shift.employeeId;
+    document.getElementById('attendance').innerHTML = `<div class="grid cols-4 attendance-metrics">${UI.stat('Total hours',(totalMs/3600000).toFixed(1))}${UI.stat('Days worked',dayKeys.length)}${UI.stat('Average / day',dayKeys.length?(totalMs/3600000/dayKeys.length).toFixed(1)+' h':'0 h')}${UI.stat('Currently checked in',shifts.filter(shift=>shift.status==='open').length,{text:'live',cls:'ok'})}</div><div class="grid split"><section class="card pad"><div class="head"><h2>Hours · Last 14 days</h2></div><div class="attendance-chart">${chartDays.map(day=>`<div class="attendance-bar"><span style="height:${Math.max(day.hours?8:2,day.hours/maxHours*100)}%"></span><b>${day.hours?day.hours.toFixed(1):'0'}</b><small>${day.label}</small></div>`).join('')}</div></section><section class="card pad"><div class="head"><h2>Attendance summary</h2></div><p class="muted">Hours include completed shifts and the elapsed time of active shifts.</p><div class="attendance-callout"><b>${(totalMs/3600000).toFixed(1)} hours</b><span>across ${dayKeys.length} working day${dayKeys.length===1?'':'s'}</span></div></section></div><div class="card pad"><div class="head"><h2>Shift records</h2><span class="pill">${shifts.length} records</span></div>${UI.table(shifts, [{key:'employeeId',label:'Employee',format:employeeName}, {key:'status',label:'Status'}, {key:'checkInAt',label:'Check in',format:r=>r.checkInAt?new Date(Number(r.checkInAt)).toLocaleString():'-'}, {key:'checkOutAt',label:'Check out',format:r=>r.checkOutAt?new Date(Number(r.checkOutAt)).toLocaleString():'-'}, {key:'duration',label:'Hours',format:r=>(duration(r)/3600000).toFixed(2)}])}</div>`;
   }
 
   function renderSettings(){

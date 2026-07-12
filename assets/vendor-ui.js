@@ -14,7 +14,7 @@
     const driver = user.role === 'driver';
     const navItems = driver
       ? [['deliveries','Deliveries'],['attendance','My attendance']]
-      : [['dashboard','Dashboard'],['pos','POS Sale'],['orders','Orders'],['products','Products'],['customers','Customers & Credit'],['employees','Employees'],['attendance','Attendance'],['settings','Settings']];
+      : [['dashboard','Dashboard'],['pos','POS Sale'],['orders','Orders'],['deliveries','Delivery history'],['products','Products'],['customers','Customers & Credit'],['employees','Employees'],['attendance','Attendance'],['settings','Settings']];
     const defaultView = driver ? 'deliveries' : 'dashboard';
     const nav = navItems.map(([view,label],index)=>`<button class="${index===0?'active':''}" data-view="${view}">${label}</button>`).join('');
     const mobileNav = navItems.map(([view,label],index)=>`<button class="btn ${index===0?'primary':''}" data-view="${view}">${label}</button>`).join('');
