@@ -59,7 +59,7 @@
     if(!cleanName || !password || !crName || !crNumber) throw new Error('Username, password, CR name, and CR number are required.');
     const id = userIdFor(cleanName);
     const vendorId = vendorIdFor(cleanName);
-    const existing = await new Promise(resolve => global.OmniDB.node('users', id).once(data => resolve(data ? global.OmniUtils.cleanGun(data) : null)));
+    const existing = await global.OmniDB.get('users', id, 5000);
     if(existing && existing.deleted !== true) throw new Error('This username already exists.');
     const user = {id, username:cleanName, displayName:crName, role:'vendor_owner', vendorId, phone:phone || '', passwordHash:await hashPassword(password), active:true, deleted:false, createdAt:Date.now(), lastLoginAt:Date.now()};
     await global.OmniDB.put('users', id, user, {userId:id, vendorId});
@@ -72,7 +72,7 @@
   async function login(username, password){
     const cleanName = String(username || '').trim().toLowerCase();
     const id = userIdFor(cleanName);
-    const user = await new Promise(resolve => global.OmniDB.node('users', id).once(data => resolve(data ? {...global.OmniUtils.cleanGun(data), id:data.id || id} : null)));
+    const user = await global.OmniDB.get('users', id, 6500);
     if(!user || user.deleted === true || user.active === false) throw new Error('Account was not found.');
     if(!user.vendorId) throw new Error('This account is not linked to a vendor.');
     if(!user.passwordHash || user.passwordHash !== await hashPassword(password)) throw new Error('Password is incorrect.');

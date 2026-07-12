@@ -105,7 +105,7 @@
 
   async function hydrateSubscription(subscription, force=false){
     const {collection, callback, options} = subscription;
-    if(state.hydrationRuns.has(collection) && !force) return state.hydrationRuns.get(collection);
+    if(state.hydrationRuns.has(collection)) return state.hydrationRuns.get(collection);
     const run = (async () => {
       const firstHydration = !state.hydrated.has(collection);
       const discovered = new Map();
@@ -165,6 +165,7 @@
     state.subscriptions.set(listenerKey, subscription);
     hydrateSubscription(subscription);
     setTimeout(() => hydrateSubscription(subscription, true), 4200);
+    setTimeout(() => hydrateSubscription(subscription, true), 12000);
     const unsubscribe = () => { chain.off(); state.subscriptions.delete(listenerKey); delete state.listeners[listenerKey]; };
     state.listeners[listenerKey] = unsubscribe;
     return unsubscribe;
@@ -209,7 +210,7 @@
 
   async function patch(collection, id, changes, meta={}){
     const cached = (state.cache[collection] || []).find(row => row.id === id);
-    const existing = cached || await new Promise(resolve => node(collection, id).once(data => resolve(data ? {...utils.cleanGun(data), id} : null)));
+    const existing = cached || await directRecord(collection, id, 5000);
     if(!existing) throw new Error(`Cannot update missing record: ${collection}/${id}`);
     return put(collection, id, {...existing, ...changes, id, createdAt:existing.createdAt}, meta);
   }
@@ -220,14 +221,20 @@
     return res;
   }
 
-  function readOnce(collection, wait=900){
-    return new Promise(resolve => {
-      const rows = [];
-      node(collection).map().once((data, key) => {
-        if(data) rows.push({...utils.cleanGun(data), id:data.id || key});
-      });
-      setTimeout(() => resolve(rows.filter(row => row.deleted !== true)), wait);
+  async function readOnce(collection, wait=1800){
+    if(!config.collections.includes(collection)) throw new Error(`Unknown collection: ${collection}`);
+    const discovered = new Map();
+    node(collection).map().once((data, key) => {
+      if(data) discovered.set(data.id || key, {...utils.cleanGun(data), id:data.id || key});
     });
+    const [collectionKeys, indexedKeys] = await Promise.all([
+      parentKeys(node(collection), wait),
+      parentKeys(indexNode(collection), wait)
+    ]);
+    const ids = [...new Set([...collectionKeys, ...indexedKeys, ...(state.cache[collection] || []).map(row => row.id)].filter(Boolean))];
+    const direct = await Promise.all(ids.map(id => directRecord(collection, id, Math.max(wait, 2400))));
+    direct.filter(Boolean).forEach(row => discovered.set(row.id, row));
+    return [...discovered.values()].filter(row => row.deleted !== true);
   }
 
   function event(action, entityType, entityId, data={}, meta={}){
@@ -262,7 +269,7 @@
     return results;
   }
 
-  global.OmniDB = { init, node, subscribe, put, patch, softDelete, readOnce, event, exportCollection, importRows, hydrate:collection => {
+  global.OmniDB = { init, node, get:(collection,id,wait=5000) => directRecord(collection,id,wait), subscribe, put, patch, softDelete, readOnce, event, exportCollection, importRows, hydrate:collection => {
     const subscriptions = [...state.subscriptions.values()].filter(item => !collection || item.collection === collection);
     return Promise.all(subscriptions.map(item => hydrateSubscription(item, true)));
   }, state };
