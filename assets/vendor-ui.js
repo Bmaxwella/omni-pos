@@ -22,7 +22,7 @@
       <aside class="side">
         <div class="brand"><div class="brand-mark">OM</div><div>OMNI<br><span class="muted">VENDOR</span></div></div>
         <nav class="nav" data-nav>${nav}</nav>
-        <div class="sync"><span id="syncDot" class="dot"></span><span id="syncText">Connecting securely</span></div>
+        <div class="sync"><span id="syncDot" class="dot"></span><span id="syncText">Connecting securely</span><small class="relay-url">GUN relay: ${U.esc(global.OmniConfig.peers.join(', '))}</small></div>
       </aside>
       <main class="main">
         <div id="orderAlert" class="order-alert" role="alert" aria-live="assertive"></div>
@@ -56,7 +56,14 @@
   }
 
   function activeView(){ return document.querySelector('.view.active')?.id || 'dashboard'; }
-  function setStatus(status){ document.getElementById('syncDot')?.classList.toggle('online', status.online); const text=document.getElementById('syncText'); if(text) text.textContent=status.text || 'Connecting'; }
+  function setStatus(status){
+    document.getElementById('syncDot')?.classList.toggle('online', status.online);
+    document.getElementById('authRelayDot')?.classList.toggle('online', status.online);
+    const text=document.getElementById('syncText');
+    const authText=document.getElementById('authRelayState');
+    if(text) text.textContent=status.text || 'Connecting';
+    if(authText) authText.textContent=status.online ? 'Connected' : (status.text || 'Connecting');
+  }
   function stat(label,value,pill=''){ return `<div class="card pad metric"><span class="muted">${U.esc(label)}</span><b>${U.esc(value)}</b>${pill?`<span class="pill ${pill.cls||''}">${U.esc(pill.text)}</span>`:''}</div>`; }
   function table(rows, columns, actions){
     if(!rows.length) return '<div class="card empty">No records found</div>';

@@ -351,8 +351,10 @@
           </div>
           <button class="btn primary auth-submit">Create vendor account</button>
         </form>
+        <div class="relay-diagnostic"><span id="authRelayDot" class="dot"></span><div><b id="authRelayState">Connecting</b><small>GUN relay: ${U.esc(global.OmniConfig.peers.join(', '))}</small></div></div>
       </div>
     </section></main>`;
+    UI.setStatus(DB.state.status);
     document.querySelectorAll('[data-auth-tab]').forEach(btn => btn.onclick = () => {
       document.querySelectorAll('[data-auth-tab]').forEach(item => item.classList.toggle('active', item === btn));
       document.querySelectorAll('.auth-panel').forEach(panel => panel.classList.toggle('active', panel.id === `${btn.dataset.authTab}Panel`));
