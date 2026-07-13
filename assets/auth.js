@@ -2,26 +2,20 @@
   'use strict';
 
   const KEY = 'omni_v2_vendor_session';
-  const LEGACY_KEY = 'omni_v2_session';
   const ALLOWED_ROLES = new Set(['vendor_owner','manager','cashier','driver']);
 
   function savedSession(){
-    const saved = global.OmniUtils.parseJson(localStorage.getItem(KEY) || 'null', null);
+    const saved = global.OmniUtils.parseJson(sessionStorage.getItem(KEY) || 'null', null);
     if(saved && ALLOWED_ROLES.has(saved.role) && saved.vendorId) return saved;
-    const legacy = global.OmniUtils.parseJson(localStorage.getItem(LEGACY_KEY) || 'null', null);
-    if(!legacy || !ALLOWED_ROLES.has(legacy.role) || !legacy.vendorId) return null;
-    localStorage.setItem(KEY, JSON.stringify(legacy));
-    return legacy;
+    return null;
   }
 
   function saveSession(user){
-    localStorage.setItem(KEY, JSON.stringify({userId:user.id || user.userId, id:user.id || user.userId, username:user.username, displayName:user.displayName || user.username, phone:user.phone || '', role:user.role, vendorId:user.vendorId || '', employeeId:user.employeeId || '', at:Date.now()}));
+    sessionStorage.setItem(KEY, JSON.stringify({userId:user.id || user.userId, id:user.id || user.userId, username:user.username, displayName:user.displayName || user.username, phone:user.phone || '', role:user.role, vendorId:user.vendorId || '', employeeId:user.employeeId || '', at:Date.now()}));
   }
 
   function clearSession(){
-    localStorage.removeItem(KEY);
-    const legacy = global.OmniUtils.parseJson(localStorage.getItem(LEGACY_KEY) || 'null', null);
-    if(legacy && ALLOWED_ROLES.has(legacy.role)) localStorage.removeItem(LEGACY_KEY);
+    sessionStorage.removeItem(KEY);
   }
 
   function userIdFor(username){

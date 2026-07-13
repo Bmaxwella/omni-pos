@@ -1029,10 +1029,23 @@
     render();
   }
 
-  function boot(){
+  async function boot(){
     DB.init(UI.setStatus);
-    if(currentUser) startApp();
-    else renderAuthGate();
+    const session = global.OmniAuth.savedSession();
+    if(session?.userId) {
+      try {
+        const user = await DB.get('users', session.userId, 8000);
+        if(user && user.deleted !== true && user.active !== false && ['vendor_owner','manager','cashier','driver'].includes(user.role) && user.vendorId) {
+          currentUser = {...session, ...user, userId:user.id};
+          global.OmniAuth.saveSession(currentUser);
+          startApp();
+          return;
+        }
+      } catch {}
+      global.OmniAuth.clearSession();
+    }
+    currentUser = null;
+    renderAuthGate();
   }
   boot();
 })(window);

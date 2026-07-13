@@ -30,7 +30,7 @@
       state.status = status;
       state.listeners.status?.(status);
     };
-    state.gun = Gun({peers: config.peers, localStorage: true, retry: Infinity});
+    state.gun = Gun({peers: config.peers, localStorage: false, retry: Infinity});
     state.root = state.gun.get(config.appRoot);
     state.gun.on('hi', peer => {
       state.connectedRelays.add(peerName(peer));
@@ -39,10 +39,10 @@
     });
     state.gun.on('bye', peer => {
       state.connectedRelays.delete(peerName(peer));
-      report({online:state.connectedRelays.size > 0, count:state.connectedRelays.size, text:state.connectedRelays.size ? 'Connected · changes sync automatically' : 'Offline · changes stay on this device'});
+      report({online:state.connectedRelays.size > 0, count:state.connectedRelays.size, text:state.connectedRelays.size ? 'Connected · changes sync automatically' : 'Database relay disconnected'});
     });
     setTimeout(() => {
-      if(!state.connectedRelays.size) report({online:false,count:0,text:'Offline · changes stay on this device'});
+      if(!state.connectedRelays.size) report({online:false,count:0,text:'Database relay disconnected'});
     }, 6500);
     const reconnect = () => {
       if(document.visibilityState === 'hidden') return;
@@ -133,10 +133,7 @@
       const ids = [...new Set([...collectionKeys, ...indexedKeys, ...(state.cache[collection] || []).map(row => row.id)].filter(Boolean))];
       const direct = await Promise.all(ids.map(id => directRecord(collection, id)));
       direct.forEach((row, index) => collect(row, ids[index]));
-      discovered.forEach(row => {
-        upsertCache(collection, row, row.id);
-        rememberId(collection, row.id, row.updatedAt);
-      });
+      discovered.forEach(row => upsertCache(collection, row, row.id));
       state.hydrated.add(collection);
       callback?.(visibleRows(collection, options), null, null, {hydrated:true, count:discovered.size});
       reportStatus(state.pendingWrites.size ? `Loading complete · ${state.pendingWrites.size} change${state.pendingWrites.size===1?'':'s'} waiting to sync` : `Data synced · ${state.hydrated.size} sections loaded`);
@@ -164,47 +161,46 @@
     else upsertCache(collection, null, id);
   }
 
-  function writeRecord(collection, id, payload, row, previous, options={}){
+  function writeAcknowledged(chain, payload, timeout=15000){
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if(settled) return;
+        settled = true;
+        reject(new Error('The database relay did not confirm this write. Nothing was saved.'));
+      }, timeout);
+      chain.put(payload, ack => {
+        if(settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if(ack?.err) reject(new Error(String(ack.err)));
+        else resolve(ack || {});
+      });
+    });
+  }
+
+  async function writeRecord(collection, id, payload, row, previous, options={}){
+    if(!state.connectedRelays.size) throw new Error('Database relay is disconnected. Reconnect before saving.');
     const writeKey = `${collection}/${id}`;
     const startedAt = Date.now();
     const pending = {collection, id, startedAt, operation:options.operation || 'write'};
     state.pendingWrites.set(writeKey, pending);
-    if(row) upsertCache(collection, row, id);
-    else upsertCache(collection, null, id);
-    if(options.removeIndex) indexNode(collection, id).put(null);
-    else rememberId(collection, id, row?.updatedAt || startedAt);
-    return new Promise((resolve, reject) => {
-      let returned = false;
-      const finishQueued = () => {
-        if(returned) return;
-        returned = true;
-        reportStatus(state.connectedRelays.size ? 'Saved · relay confirmation pending' : 'Saved on this device · waiting for connection');
-        resolve({ack:null, row, queued:true, synced:false});
-      };
-      const timer = setTimeout(finishQueued, 4000);
-      node(collection, id).put(payload, ack => {
-        clearTimeout(timer);
-        const latest = state.pendingWrites.get(writeKey) === pending;
-        if(latest) state.pendingWrites.delete(writeKey);
-        if(ack?.err) {
-          if(latest) {
-            restoreCache(collection, id, previous);
-            if(options.removeIndex && previous) rememberId(collection, id, previous.updatedAt);
-            reportStatus(`Sync error · ${String(ack.err)}`);
-          }
-          if(!returned) {
-            returned = true;
-            reject(new Error(String(ack.err)));
-          }
-          return;
-        }
-        reportStatus(state.connectedRelays.size ? `Data synced · ${state.hydrated.size} sections loaded` : 'Saved on this device · waiting for connection');
-        if(!returned) {
-          returned = true;
-          resolve({ack, row, queued:state.connectedRelays.size === 0, synced:state.connectedRelays.size > 0});
-        }
-      });
-    });
+    try {
+      const [ack] = await Promise.all([
+        writeAcknowledged(node(collection, id), payload),
+        writeAcknowledged(indexNode(collection, id), options.removeIndex ? null : {id, updatedAt:Number(row?.updatedAt || startedAt)})
+      ]);
+      if(row) upsertCache(collection, row, id);
+      else upsertCache(collection, null, id);
+      if(state.pendingWrites.get(writeKey) === pending) state.pendingWrites.delete(writeKey);
+      reportStatus(`Data synced · ${state.hydrated.size} sections loaded`);
+      return {ack, row, queued:false, synced:true};
+    } catch(error) {
+      if(state.pendingWrites.get(writeKey) === pending) state.pendingWrites.delete(writeKey);
+      restoreCache(collection, id, previous);
+      reportStatus(`Database sync error · ${error.message || 'write rejected'}`);
+      throw error;
+    }
   }
 
   function subscribe(collection, callback, options={}){
@@ -217,7 +213,6 @@
       const clean = data ? {...utils.cleanGun(data), id:data.id || key} : null;
       if(!acceptRow(options, clean, key)) return;
       upsertCache(collection, data, key);
-      if(clean) rememberId(collection, clean.id, clean.updatedAt);
       const rows = visibleRows(collection, options);
       callback?.(rows, clean, key);
     };
@@ -277,11 +272,6 @@
     if(!config.collections.includes(collection)) throw new Error(`Unknown collection: ${collection}`);
     const cached = (state.cache[collection] || []).find(row => row.id === id);
     const existing = cached || await directRecord(collection, id, 3200);
-    if(!existing) {
-      upsertCache(collection, null, id);
-      indexNode(collection, id).put(null);
-      return {ack:null, row:null, missing:true, synced:state.connectedRelays.size > 0};
-    }
     return writeRecord(collection, id, null, null, existing, {operation:'hard-delete', removeIndex:true});
   }
 

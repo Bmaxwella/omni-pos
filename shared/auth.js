@@ -4,15 +4,15 @@
   const KEY = 'omni_v2_session';
 
   function savedSession(){
-    return global.OmniUtils.parseJson(localStorage.getItem(KEY) || 'null', null);
+    return global.OmniUtils.parseJson(sessionStorage.getItem(KEY) || 'null', null);
   }
 
   function saveSession(user){
-    localStorage.setItem(KEY, JSON.stringify({userId:user.id, username:user.username, role:user.role, vendorId:user.vendorId || '', at:Date.now()}));
+    sessionStorage.setItem(KEY, JSON.stringify({userId:user.id, username:user.username, role:user.role, vendorId:user.vendorId || '', at:Date.now()}));
   }
 
   function clearSession(){
-    localStorage.removeItem(KEY);
+    sessionStorage.removeItem(KEY);
   }
 
   async function signIn(username, role='customer', vendorId=''){

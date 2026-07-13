@@ -1,11 +1,15 @@
 (function(global){
   'use strict';
 
+  const relayUrl = 'https://relay.omni-society.com/gun';
+
   global.OmniConfig = {
     appRoot: 'omni-v2',
     schemaVersion: 3,
     currency: 'BHD',
-    peers: ['https://relay.omni-society.com/gun'],
+    relayUrl,
+    peers: [relayUrl],
+    databaseOnly: true,
     collections: [
       'users','vendors','publicVendors','vendorUsers','employees','branches','products','productOptions',
       'productCodes','qrCodes','images','customers','customerLocations',
