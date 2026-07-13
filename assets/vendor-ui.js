@@ -12,9 +12,13 @@
 
   function shell(user={}){
     const driver = user.role === 'driver';
+    const roleItems = {
+      cashier: [['dashboard','Dashboard'],['pos','POS Sale'],['orders','Orders'],['deliveries','Delivery history'],['products','Products'],['customers','Customers & Credit'],['attendance','My attendance']],
+      manager: [['dashboard','Dashboard'],['pos','POS Sale'],['orders','Orders'],['deliveries','Delivery history'],['products','Products'],['customers','Customers & Credit'],['employees','Employees'],['attendance','Attendance']]
+    };
     const navItems = driver
       ? [['deliveries','Deliveries'],['attendance','My attendance']]
-      : [['dashboard','Dashboard'],['pos','POS Sale'],['orders','Orders'],['deliveries','Delivery history'],['products','Products'],['customers','Customers & Credit'],['employees','Employees'],['attendance','Attendance'],['settings','Settings']];
+      : roleItems[user.role] || [['dashboard','Dashboard'],['pos','POS Sale'],['orders','Orders'],['deliveries','Delivery history'],['products','Products'],['customers','Customers & Credit'],['employees','Employees'],['attendance','Attendance'],['settings','Settings']];
     const defaultView = driver ? 'deliveries' : 'dashboard';
     const nav = navItems.map(([view,label],index)=>`<button class="${index===0?'active':''}" data-view="${view}">${label}</button>`).join('');
     const mobileNav = navItems.map(([view,label],index)=>`<button class="btn ${index===0?'primary':''}" data-view="${view}">${label}</button>`).join('');
