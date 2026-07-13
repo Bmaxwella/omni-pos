@@ -358,7 +358,7 @@
           </div>
           <button class="btn primary auth-submit">Create vendor account</button>
         </form>
-        <div class="relay-diagnostic"><span id="authRelayDot" class="dot"></span><div><b id="authRelayState">Connecting</b><small>GUN relay: ${U.esc(global.OmniConfig.peers.join(', '))}</small></div></div>
+        <div class="relay-diagnostic"><span id="authRelayDot" class="dot"></span><div><b id="authRelayState">Connecting</b><small>Secure cloud service</small></div></div>
       </div>
     </section></main>`;
     UI.setStatus(DB.state.status);

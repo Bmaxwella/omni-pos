@@ -34,15 +34,15 @@
     state.root = state.gun.get(config.appRoot);
     state.gun.on('hi', peer => {
       state.connectedRelays.add(peerName(peer));
-      report({online:true, count:state.connectedRelays.size, text:state.pendingWrites.size ? `Connected · syncing ${state.pendingWrites.size} saved change${state.pendingWrites.size===1?'':'s'}` : state.hydrated.size ? `Data synced · ${state.hydrated.size} sections loaded` : 'Connected · loading saved data'});
+      report({online:true, count:state.connectedRelays.size, text:state.pendingWrites.size ? `Connected · confirming ${state.pendingWrites.size} change${state.pendingWrites.size===1?'':'s'}` : state.hydrated.size ? `Connected · live data stream active (${state.hydrated.size} sections read)` : 'Connected · reading live data'});
       setTimeout(() => state.subscriptions.forEach(subscription => hydrateSubscription(subscription, true)), 350);
     });
     state.gun.on('bye', peer => {
       state.connectedRelays.delete(peerName(peer));
-      report({online:state.connectedRelays.size > 0, count:state.connectedRelays.size, text:state.connectedRelays.size ? 'Connected · changes sync automatically' : 'Database relay disconnected'});
+      report({online:state.connectedRelays.size > 0, count:state.connectedRelays.size, text:state.connectedRelays.size ? 'Connected · changes sync automatically' : 'Service connection unavailable'});
     });
     setTimeout(() => {
-      if(!state.connectedRelays.size) report({online:false,count:0,text:'Database relay disconnected'});
+      if(!state.connectedRelays.size) report({online:false,count:0,text:'Service connection unavailable'});
     }, 6500);
     const reconnect = () => {
       if(document.visibilityState === 'hidden') return;
@@ -78,11 +78,6 @@
 
   function acceptRow(options, row, key){
     return !row || typeof options.accept !== 'function' || options.accept(row, key);
-  }
-
-  function rememberId(collection, id, updatedAt=Date.now()){
-    if(!id) return;
-    indexNode(collection, id).put({id, updatedAt:Number(updatedAt || Date.now())});
   }
 
   function parentKeys(chain, wait=1400){
@@ -136,7 +131,7 @@
       discovered.forEach(row => upsertCache(collection, row, row.id));
       state.hydrated.add(collection);
       callback?.(visibleRows(collection, options), null, null, {hydrated:true, count:discovered.size});
-      reportStatus(state.pendingWrites.size ? `Loading complete · ${state.pendingWrites.size} change${state.pendingWrites.size===1?'':'s'} waiting to sync` : `Data synced · ${state.hydrated.size} sections loaded`);
+      reportStatus(state.pendingWrites.size ? `Live data read · ${state.pendingWrites.size} change${state.pendingWrites.size===1?'':'s'} awaiting confirmation` : `Connected · live data stream active (${state.hydrated.size} sections read)`);
       return discovered.size;
     })().finally(() => state.hydrationRuns.delete(collection));
     state.hydrationRuns.set(collection, run);
@@ -161,13 +156,13 @@
     else upsertCache(collection, null, id);
   }
 
-  function writeAcknowledged(chain, payload, timeout=15000){
+  function writeAcknowledged(chain, payload, timeout=20000){
     return new Promise((resolve, reject) => {
       let settled = false;
       const timer = setTimeout(() => {
         if(settled) return;
         settled = true;
-        reject(new Error('The database relay did not confirm this write. Nothing was saved.'));
+        reject(new Error('Background index synchronization timed out.'));
       }, timeout);
       chain.put(payload, ack => {
         if(settled) return;
@@ -179,28 +174,106 @@
     });
   }
 
-  async function writeRecord(collection, id, payload, row, previous, options={}){
-    if(!state.connectedRelays.size) throw new Error('Database relay is disconnected. Reconnect before saving.');
+  function sameRevision(remote, payload){
+    if(payload === null) return remote === null;
+    if(!remote || typeof remote !== 'object') return false;
+    if(payload.id && remote.id !== payload.id) return false;
+    if(payload.updatedAt && Number(remote.updatedAt) !== Number(payload.updatedAt)) return false;
+    return Object.keys(payload).filter(key => key !== '_').every(key => {
+      const expected = payload[key];
+      const actual = remote[key];
+      return expected && typeof expected === 'object'
+        ? JSON.stringify(actual) === JSON.stringify(expected)
+        : actual === expected;
+    });
+  }
+
+  function verifyRelayRevision(collection, id, payload, timeout=12000){
+    return new Promise(resolve => {
+      let settled = false;
+      let timer;
+      const reader = Gun({peers:config.peers, localStorage:false, retry:2});
+      const chain = reader.get(config.appRoot).get(collection).get(id);
+      const finish = value => {
+        if(settled) return;
+        const clean = value && typeof value === 'object' ? utils.cleanGun(value) : null;
+        if(!sameRevision(clean, payload)) return;
+        settled = true;
+        clearTimeout(timer);
+        chain.off();
+        resolve(true);
+      };
+      timer = setTimeout(() => {
+        if(settled) return;
+        settled = true;
+        chain.off();
+        resolve(false);
+      }, timeout);
+      chain.on(finish);
+    });
+  }
+
+  function repairIndex(collection, id, row, removeIndex=false){
+    const payload = removeIndex ? null : {id, updatedAt:Number(row?.updatedAt || Date.now())};
+    const tryWrite = attempt => writeAcknowledged(indexNode(collection, id), payload, 10000).catch(error => {
+      if(attempt < 2) return new Promise(resolve => setTimeout(resolve, 1500 * attempt)).then(() => tryWrite(attempt + 1));
+      reportStatus('Record saved. Background discovery will be repaired after reconnecting.');
+      return null;
+    });
+    return tryWrite(1);
+  }
+
+  function confirmRecordWrite(collection, id, payload, pending, attempt=1){
+    return new Promise(resolve => {
+      let acknowledged = false;
+      const chain = node(collection, id);
+      const verifyTimer = setTimeout(async () => {
+        if(acknowledged) return;
+        if(state.pendingWrites.get(`${collection}/${id}`) !== pending) return resolve({ok:true, superseded:true});
+        const committed = await verifyRelayRevision(collection, id, payload, 6000);
+        if(committed) return resolve({ok:true, verified:true});
+        if(attempt < 3) return resolve(confirmRecordWrite(collection, id, payload, pending, attempt + 1));
+        resolve({ok:false, error:'The service did not verify the saved revision.'});
+      }, attempt === 1 ? 2500 : 4000);
+      chain.put(payload, ack => {
+        if(acknowledged) return;
+        if(state.pendingWrites.get(`${collection}/${id}`) !== pending) return resolve({ok:true, superseded:true});
+        if(ack?.err) return;
+        acknowledged = true;
+        clearTimeout(verifyTimer);
+        resolve({ok:true, ack:ack || {}});
+      });
+    });
+  }
+
+  function writeRecord(collection, id, payload, row, previous, options={}){
+    if(!state.connectedRelays.size) throw new Error('Service is offline. Reconnect before saving.');
     const writeKey = `${collection}/${id}`;
     const startedAt = Date.now();
     const pending = {collection, id, startedAt, operation:options.operation || 'write'};
     state.pendingWrites.set(writeKey, pending);
-    try {
-      const [ack] = await Promise.all([
-        writeAcknowledged(node(collection, id), payload),
-        writeAcknowledged(indexNode(collection, id), options.removeIndex ? null : {id, updatedAt:Number(row?.updatedAt || startedAt)})
-      ]);
-      if(row) upsertCache(collection, row, id);
-      else upsertCache(collection, null, id);
-      if(state.pendingWrites.get(writeKey) === pending) state.pendingWrites.delete(writeKey);
-      reportStatus(`Data synced · ${state.hydrated.size} sections loaded`);
-      return {ack, row, queued:false, synced:true};
-    } catch(error) {
-      if(state.pendingWrites.get(writeKey) === pending) state.pendingWrites.delete(writeKey);
+    if(row) upsertCache(collection, row, id);
+    else upsertCache(collection, null, id);
+    reportStatus('Connected · saving change');
+    confirmRecordWrite(collection, id, payload, pending).then(result => {
+      if(state.pendingWrites.get(writeKey) !== pending) return;
+      state.pendingWrites.delete(writeKey);
+      if(result.ok) {
+        repairIndex(collection, id, row, options.removeIndex).catch(() => {});
+        reportStatus('Connected · change confirmed by relay');
+        return;
+      }
+      restoreCache(collection, id, previous);
+      reportStatus(`Database sync error · ${result.error}`);
+      state.listeners.syncError?.({collection, id, error:result.error});
+    }).catch(error => {
+      if(state.pendingWrites.get(writeKey) !== pending) return;
+      state.pendingWrites.delete(writeKey);
       restoreCache(collection, id, previous);
       reportStatus(`Database sync error · ${error.message || 'write rejected'}`);
-      throw error;
-    }
+      state.listeners.syncError?.({collection, id, error:error.message || 'write rejected'});
+    });
+    return Promise.resolve({ack:{queued:true}, row, queued:true, synced:false});
   }
 
   function subscribe(collection, callback, options={}){
@@ -264,8 +337,13 @@
 
   async function softDelete(collection, id, meta={}){
     const res = await patch(collection, id, {deleted:true, active:false, deletedAt:Date.now()}, meta);
-    await event('record_deleted', collection, id, {summary:`Soft deleted ${collection}/${id}`, vendorId:meta.vendorId || ''}, meta);
-    return res;
+    try {
+      await event('record_deleted', collection, id, {summary:`Soft deleted ${collection}/${id}`, vendorId:meta.vendorId || ''}, meta);
+      return res;
+    } catch(error) {
+      reportStatus('Record changed, but its audit entry could not be saved');
+      return {...res, auditError:error.message || 'Audit entry failed'};
+    }
   }
 
   async function hardDelete(collection, id){

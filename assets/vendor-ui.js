@@ -24,7 +24,7 @@
       <aside class="side">
         <div class="brand"><div class="brand-mark">OM</div><div>OMNI<br><span class="muted">VENDOR</span></div></div>
         <nav class="nav" data-nav>${nav}</nav>
-        <div class="sync"><span id="syncDot" class="dot"></span><span id="syncText">Connecting securely</span><small class="relay-url">GUN relay: ${U.esc(global.OmniConfig.peers.join(', '))}</small></div>
+        <div class="sync"><span id="syncDot" class="dot"></span><span id="syncText">Connecting securely</span><small class="relay-url">Secure cloud service</small></div>
       </aside>
       <main class="main">
         <div id="orderAlert" class="order-alert" role="alert" aria-live="assertive"></div>
