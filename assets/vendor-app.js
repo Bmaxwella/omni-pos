@@ -125,23 +125,25 @@
       const context = audioContext || new AudioEngine();
       if(!audioContext) audioContext = context;
       const now = context.currentTime;
-      [1046, 1568].forEach((frequency, index) => {
+      [1175, 1568, 2093].forEach((frequency, index) => {
         const oscillator = context.createOscillator();
         const gain = context.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(frequency, now + index * .08);
-        gain.gain.setValueAtTime(.0001, now + index * .08);
-        gain.gain.exponentialRampToValueAtTime(.24, now + index * .08 + .01);
-        gain.gain.exponentialRampToValueAtTime(.0001, now + index * .08 + .1);
+        const offset = index * .09;
+        oscillator.type = index === 1 ? 'square' : 'triangle';
+        oscillator.frequency.setValueAtTime(frequency, now + offset);
+        gain.gain.setValueAtTime(.0001, now + offset);
+        gain.gain.exponentialRampToValueAtTime(.42, now + offset + .008);
+        gain.gain.exponentialRampToValueAtTime(.0001, now + offset + .075);
         oscillator.connect(gain).connect(context.destination);
-        oscillator.start(now + index * .08);
-        oscillator.stop(now + index * .08 + .11);
+        oscillator.start(now + offset);
+        oscillator.stop(now + offset + .08);
       });
     } catch {}
   }
 
   async function startBarcodeScanner(onDetected){
     stopBarcodeScanner();
+    await unlockOrderSound();
     if(!navigator.mediaDevices?.getUserMedia) return UI.toast('Camera scanning is unavailable. Enter the barcode or SKU manually','bad');
     const modal = document.createElement('div');
     modal.id = 'barcodeScannerModal';
@@ -151,10 +153,13 @@
     document.getElementById('closeScannerBtn').onclick = stopBarcodeScanner;
     const video = document.getElementById('barcodeVideo');
     const status = document.getElementById('scannerStatus');
+    let finished = false;
     const finish = value => {
       const code = String(value || '').trim();
-      if(!code) return;
+      if(!code || finished) return;
+      finished = true;
       playScanSuccessTone();
+      navigator.vibrate?.(70);
       stopBarcodeScanner();
       onDetected(code);
       UI.toast(`Barcode detected: ${code}`,'ok');
@@ -327,7 +332,9 @@
 
   function renderAuthGate(){
     clearLiveTimers();
-    document.getElementById('app').innerHTML = `<main class="auth-screen"><section class="auth-card">
+    const app = document.getElementById('app');
+    app.className = 'auth-root';
+    app.innerHTML = `<main class="auth-screen"><section class="auth-card">
       <div class="auth-copy">
         <div class="auth-brand"><span class="brand-mark">OM</span><strong>OMNI Vendor</strong></div>
         <div><span class="auth-kicker">Operations workspace</span><h1>Run the day from one place.</h1><p>Sales, orders, delivery, products, customer credit, and attendance stay connected for your team.</p></div>
@@ -389,15 +396,7 @@
   }
 
   async function publicVendorPayload(vendor){
-    const products = mine('products').filter(p=>p.active!==false).map(p=>({
-      id:p.id, name:p.name, category:p.category||'', description:p.description||'', itemType:p.itemType||'product',
-      price:Number(p.price||0), compareAtPrice:Number(p.compareAtPrice||0), unit:p.unit||'each', taxRate:Number(p.taxRate||0),
-      image:productImage(p), imagesJson:JSON.stringify(productImages(p)), attributesJson:JSON.stringify(productAttributes(p)),
-      barcode:p.barcode||'', qrCode:p.qrCode||'', sku:p.sku||'', stockMode:p.stockMode||'none', stockQty:Number(p.stockQty||0),
-      lowStockThreshold:Number(p.lowStockThreshold||0), preparationMinutes:Number(p.preparationMinutes||0), featured:p.featured===true,
-      active:p.active!==false, updatedAt:p.updatedAt||Date.now()
-    }));
-    return {...vendor, id:vendor.id || vendorId(), products:JSON.stringify(products), updatedAt:Date.now()};
+    return {...vendor, id:vendor.id || vendorId(), products:'[]', updatedAt:Date.now()};
   }
 
   async function syncPublicVendor(){
@@ -818,8 +817,12 @@
       const submit = event.submitter;
       if(submit) { submit.disabled=true; submit.textContent='Saving...'; }
       try {
-        await DB.put('products', id, record, {userId:userId(), vendorId:vendorId()});
-        await syncPublicVendor(); resetProductEditor(); UI.toast(wasEditing?'Product updated':'Product created','ok'); renderProducts();
+        const result = await DB.put('products', id, record, {userId:userId(), vendorId:vendorId()});
+        await syncPublicVendor();
+        resetProductEditor();
+        const action = wasEditing ? 'Product updated' : 'Product created';
+        UI.toast(result.synced ? `${action} and synced` : `${action} · waiting to sync`, result.synced ? 'ok' : '');
+        renderProducts();
       } catch(error) { UI.toast(error.message || 'Product could not be saved','bad'); if(submit?.isConnected){submit.disabled=false;submit.textContent=productEditor.id?'Save changes':'Create product';} }
     };
   }

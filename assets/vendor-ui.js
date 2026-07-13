@@ -18,7 +18,9 @@
     const defaultView = driver ? 'deliveries' : 'dashboard';
     const nav = navItems.map(([view,label],index)=>`<button class="${index===0?'active':''}" data-view="${view}">${label}</button>`).join('');
     const mobileNav = navItems.map(([view,label],index)=>`<button class="btn ${index===0?'primary':''}" data-view="${view}">${label}</button>`).join('');
-    document.getElementById('app').innerHTML = `
+    const app = document.getElementById('app');
+    app.className = 'app';
+    app.innerHTML = `
       <aside class="side">
         <div class="brand"><div class="brand-mark">OM</div><div>OMNI<br><span class="muted">VENDOR</span></div></div>
         <nav class="nav" data-nav>${nav}</nav>

@@ -12,6 +12,7 @@
     subscriptions: new Map(),
     hydrated: new Set(),
     hydrationRuns: new Map(),
+    pendingWrites: new Map(),
     status: {online:false, count:0, text:'Connecting securely'}
   };
 
@@ -33,7 +34,7 @@
     state.root = state.gun.get(config.appRoot);
     state.gun.on('hi', peer => {
       state.connectedRelays.add(peerName(peer));
-      report({online:true, count:state.connectedRelays.size, text:state.hydrated.size ? `Data synced · ${state.hydrated.size} sections loaded` : 'Connected · loading saved data'});
+      report({online:true, count:state.connectedRelays.size, text:state.pendingWrites.size ? `Connected · syncing ${state.pendingWrites.size} saved change${state.pendingWrites.size===1?'':'s'}` : state.hydrated.size ? `Data synced · ${state.hydrated.size} sections loaded` : 'Connected · loading saved data'});
       setTimeout(() => state.subscriptions.forEach(subscription => hydrateSubscription(subscription, true)), 350);
     });
     state.gun.on('bye', peer => {
@@ -43,7 +44,20 @@
     setTimeout(() => {
       if(!state.connectedRelays.size) report({online:false,count:0,text:'Offline · changes stay on this device'});
     }, 6500);
+    const reconnect = () => {
+      if(document.visibilityState === 'hidden') return;
+      try { state.gun.opt({peers:config.peers}); } catch {}
+      setTimeout(() => state.subscriptions.forEach(subscription => hydrateSubscription(subscription, true)), 500);
+    };
+    global.addEventListener?.('online', reconnect);
+    document.addEventListener?.('visibilitychange', reconnect);
     return state;
+  }
+
+  function reportStatus(text){
+    const status = {online:state.connectedRelays.size > 0, count:state.connectedRelays.size, text};
+    state.status = status;
+    state.listeners.status?.(status);
   }
 
   function node(collection, id){
@@ -125,7 +139,7 @@
       });
       state.hydrated.add(collection);
       callback?.(visibleRows(collection, options), null, null, {hydrated:true, count:discovered.size});
-      state.listeners.status?.({online:state.connectedRelays.size > 0, count:state.connectedRelays.size, text:`Data synced · ${state.hydrated.size} sections loaded`});
+      reportStatus(state.pendingWrites.size ? `Loading complete · ${state.pendingWrites.size} change${state.pendingWrites.size===1?'':'s'} waiting to sync` : `Data synced · ${state.hydrated.size} sections loaded`);
       return discovered.size;
     })().finally(() => state.hydrationRuns.delete(collection));
     state.hydrationRuns.set(collection, run);
@@ -143,6 +157,54 @@
     const row = {...utils.cleanGun(data), id};
     if(index >= 0) list[index] = row;
     else list.push(row);
+  }
+
+  function restoreCache(collection, id, previous){
+    if(previous) upsertCache(collection, previous, id);
+    else upsertCache(collection, null, id);
+  }
+
+  function writeRecord(collection, id, payload, row, previous, options={}){
+    const writeKey = `${collection}/${id}`;
+    const startedAt = Date.now();
+    const pending = {collection, id, startedAt, operation:options.operation || 'write'};
+    state.pendingWrites.set(writeKey, pending);
+    if(row) upsertCache(collection, row, id);
+    else upsertCache(collection, null, id);
+    if(options.removeIndex) indexNode(collection, id).put(null);
+    else rememberId(collection, id, row?.updatedAt || startedAt);
+    return new Promise((resolve, reject) => {
+      let returned = false;
+      const finishQueued = () => {
+        if(returned) return;
+        returned = true;
+        reportStatus(state.connectedRelays.size ? 'Saved · relay confirmation pending' : 'Saved on this device · waiting for connection');
+        resolve({ack:null, row, queued:true, synced:false});
+      };
+      const timer = setTimeout(finishQueued, 4000);
+      node(collection, id).put(payload, ack => {
+        clearTimeout(timer);
+        const latest = state.pendingWrites.get(writeKey) === pending;
+        if(latest) state.pendingWrites.delete(writeKey);
+        if(ack?.err) {
+          if(latest) {
+            restoreCache(collection, id, previous);
+            if(options.removeIndex && previous) rememberId(collection, id, previous.updatedAt);
+            reportStatus(`Sync error · ${String(ack.err)}`);
+          }
+          if(!returned) {
+            returned = true;
+            reject(new Error(String(ack.err)));
+          }
+          return;
+        }
+        reportStatus(state.connectedRelays.size ? `Data synced · ${state.hydrated.size} sections loaded` : 'Saved on this device · waiting for connection');
+        if(!returned) {
+          returned = true;
+          resolve({ack, row, queued:state.connectedRelays.size === 0, synced:state.connectedRelays.size > 0});
+        }
+      });
+    });
   }
 
   function subscribe(collection, callback, options={}){
@@ -185,25 +247,8 @@
     };
     const validation = global.OmniSchema?.validate(collection, row);
     if(validation && !validation.ok) return Promise.reject(new Error(`Missing required fields: ${validation.missing.join(', ')}`));
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const timer = setTimeout(() => {
-        if(settled) return;
-        settled = true;
-        reject(new Error('The database did not confirm this write. Check the relay connection and try again.'));
-      }, 12000);
-      node(collection, currentId).put(row, ack => {
-        if(settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if(ack?.err) reject(new Error(String(ack.err)));
-        else {
-          upsertCache(collection, row, currentId);
-          rememberId(collection, currentId, row.updatedAt);
-          resolve({ack, row});
-        }
-      });
-    });
+    const previous = (state.cache[collection] || []).find(item => item.id === currentId) || null;
+    return writeRecord(collection, currentId, row, row, previous);
   }
 
   async function patch(collection, id, changes, meta={}){
@@ -218,32 +263,26 @@
       updatedAt: now,
       updatedBy: meta.userId || changes.updatedBy || existing.updatedBy || ''
     };
-    return new Promise((resolve, reject) => {
-      let settled = false;
-      const timer = setTimeout(() => {
-        if(settled) return;
-        settled = true;
-        reject(new Error('The database did not confirm this update. Check the connection and try again.'));
-      }, 12000);
-      node(collection, id).put(delta, ack => {
-        if(settled) return;
-        settled = true;
-        clearTimeout(timer);
-        if(ack?.err) reject(new Error(String(ack.err)));
-        else {
-          const row = {...existing, ...delta};
-          upsertCache(collection, row, id);
-          rememberId(collection, id, now);
-          resolve({ack, row});
-        }
-      });
-    });
+    const row = {...existing, ...delta};
+    return writeRecord(collection, id, delta, row, existing, {operation:'update'});
   }
 
   async function softDelete(collection, id, meta={}){
     const res = await patch(collection, id, {deleted:true, active:false, deletedAt:Date.now()}, meta);
     await event('record_deleted', collection, id, {summary:`Soft deleted ${collection}/${id}`, vendorId:meta.vendorId || ''}, meta);
     return res;
+  }
+
+  async function hardDelete(collection, id){
+    if(!config.collections.includes(collection)) throw new Error(`Unknown collection: ${collection}`);
+    const cached = (state.cache[collection] || []).find(row => row.id === id);
+    const existing = cached || await directRecord(collection, id, 3200);
+    if(!existing) {
+      upsertCache(collection, null, id);
+      indexNode(collection, id).put(null);
+      return {ack:null, row:null, missing:true, synced:state.connectedRelays.size > 0};
+    }
+    return writeRecord(collection, id, null, null, existing, {operation:'hard-delete', removeIndex:true});
   }
 
   async function readOnce(collection, wait=1800){
@@ -294,7 +333,7 @@
     return results;
   }
 
-  global.OmniDB = { init, node, get:(collection,id,wait=5000) => directRecord(collection,id,wait), subscribe, put, patch, softDelete, readOnce, event, exportCollection, importRows, hydrate:collection => {
+  global.OmniDB = { init, node, get:(collection,id,wait=5000) => directRecord(collection,id,wait), subscribe, put, patch, softDelete, hardDelete, readOnce, event, exportCollection, importRows, hydrate:collection => {
     const subscriptions = [...state.subscriptions.values()].filter(item => !collection || item.collection === collection);
     return Promise.all(subscriptions.map(item => hydrateSubscription(item, true)));
   }, state };
