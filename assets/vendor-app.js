@@ -899,22 +899,50 @@
     if(!canWrite) return;
     document.getElementById('employeeForm').onsubmit = async e => {
       e.preventDefault();
-      const username = document.getElementById('empUser').value.trim().toLowerCase();
-      const employeeId = U.uid('employee');
-      const role = document.getElementById('empRole').value;
-      const phone = document.getElementById('empPhone').value.trim();
-      await DB.put('employees', employeeId, {id:employeeId, vendorId:vendorId(), name:document.getElementById('empName').value.trim(), username, phone, role, jobTitle:document.getElementById('empJob').value.trim(), active:true}, {userId:userId(), vendorId:vendorId()});
-      const userRecord = {id:`user_${username.replace(/[^a-z0-9]+/g,'_')}`, username, displayName:document.getElementById('empName').value.trim(), phone, role, vendorId:vendorId(), employeeId, passwordHash:await global.OmniAuth.hashPassword(document.getElementById('empPass').value), active:true, deleted:false};
-      await DB.put('users', userRecord.id, userRecord, {userId:userId(), vendorId:vendorId()});
-      UI.toast('Employee user saved','ok'); renderEmployees();
+      const form = e.currentTarget;
+      const submit = form.querySelector('button[type="submit"],button:not([type])');
+      const originalLabel = submit?.textContent || 'Save employee';
+      if(submit){ submit.disabled = true; submit.textContent = 'Saving…'; }
+      try {
+        const username = document.getElementById('empUser').value.trim().toLowerCase();
+        const userRecordId = `user_${username.replace(/[^a-z0-9]+/g,'_')}`;
+        if(!username) throw new Error('Employee username is required.');
+        const existingUser = rows('users').find(user => user.id === userRecordId && user.deleted !== true) || await DB.get('users', userRecordId, 4500);
+        if(existingUser && existingUser.deleted !== true) throw new Error('This employee username already exists.');
+        const employeeId = U.uid('employee');
+        const role = document.getElementById('empRole').value;
+        const phone = document.getElementById('empPhone').value.trim();
+        const name = document.getElementById('empName').value.trim();
+        await DB.put('employees', employeeId, {id:employeeId, vendorId:vendorId(), name, username, phone, role, jobTitle:document.getElementById('empJob').value.trim(), active:true}, {userId:userId(), vendorId:vendorId()});
+        const userRecord = {id:userRecordId, username, displayName:name, phone, role, vendorId:vendorId(), employeeId, passwordHash:await global.OmniAuth.hashPassword(document.getElementById('empPass').value), active:true, deleted:false};
+        await DB.put('users', userRecord.id, userRecord, {userId:userId(), vendorId:vendorId()});
+        UI.toast('Employee saved and syncing','ok');
+        renderEmployees();
+      } catch(error) {
+        UI.toast(error.message || 'Employee could not be saved','bad');
+      } finally {
+        if(submit?.isConnected){ submit.disabled = false; submit.textContent = originalLabel; }
+      }
     };
   }
 
   async function toggleShift(){
-    const open = mine('employeeShifts').find(s=>s.userId===userId() && s.status==='open');
-    if(open){ await DB.patch('employeeShifts', open.id, {status:'closed', checkOutAt:Date.now()}, {userId:userId(), vendorId:vendorId()}); UI.toast('Checked out','ok'); }
-    else { await DB.put('employeeShifts', U.uid('shift'), {vendorId:vendorId(), userId:userId(), employeeId:currentUser.employeeId || userId(), status:'open', checkInAt:Date.now()}, {userId:userId(), vendorId:vendorId()}); UI.toast('Checked in','ok'); }
-    updateShiftButton();
+    const button = document.getElementById('checkShiftBtn');
+    if(button?.disabled) return;
+    const originalLabel = button?.textContent || 'Attendance';
+    if(button){ button.disabled = true; button.textContent = 'Saving…'; }
+    try {
+      const open = mine('employeeShifts').find(s=>s.userId===userId() && s.status==='open');
+      if(open){ await DB.patch('employeeShifts', open.id, {status:'closed', checkOutAt:Date.now()}, {userId:userId(), vendorId:vendorId()}); UI.toast('Checked out and syncing','ok'); }
+      else { await DB.put('employeeShifts', U.uid('shift'), {vendorId:vendorId(), userId:userId(), employeeId:currentUser.employeeId || userId(), status:'open', checkInAt:Date.now()}, {userId:userId(), vendorId:vendorId()}); UI.toast('Checked in and syncing','ok'); }
+      updateShiftButton();
+      if(UI.activeView?.() === 'attendance') renderAttendance();
+    } catch(error) {
+      UI.toast(error.message || 'Attendance could not be saved','bad');
+      if(button?.isConnected) button.textContent = originalLabel;
+    } finally {
+      if(button?.isConnected) button.disabled = false;
+    }
   }
 
   function renderAttendance(){

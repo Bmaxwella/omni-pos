@@ -239,6 +239,7 @@
         if(acknowledged) return;
         if(state.pendingWrites.get(`${collection}/${id}`) !== pending) return resolve({ok:true, superseded:true});
         if(ack?.err) return;
+        if(!pending.hadRelay) return;
         acknowledged = true;
         clearTimeout(verifyTimer);
         resolve({ok:true, ack:ack || {}});
@@ -247,14 +248,17 @@
   }
 
   function writeRecord(collection, id, payload, row, previous, options={}){
-    if(!state.connectedRelays.size) throw new Error('Service is offline. Reconnect before saving.');
+    const hadRelay = state.connectedRelays.size > 0;
+    if(!hadRelay) {
+      try { state.gun?.opt({peers:config.peers}); } catch {}
+    }
     const writeKey = `${collection}/${id}`;
     const startedAt = Date.now();
-    const pending = {collection, id, startedAt, operation:options.operation || 'write'};
+    const pending = {collection, id, startedAt, operation:options.operation || 'write', hadRelay};
     state.pendingWrites.set(writeKey, pending);
     if(row) upsertCache(collection, row, id);
     else upsertCache(collection, null, id);
-    reportStatus('Connected · saving change');
+    reportStatus(hadRelay ? 'Connected · saving change' : 'Reconnecting · change awaiting confirmation');
     confirmRecordWrite(collection, id, payload, pending).then(result => {
       if(state.pendingWrites.get(writeKey) !== pending) return;
       state.pendingWrites.delete(writeKey);
