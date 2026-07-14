@@ -30,10 +30,14 @@
       state.status = status;
       state.listeners.status?.(status);
     };
-    state.gun = Gun({peers: config.peers, localStorage: false, retry: Infinity});
+    state.gun = Gun({peers: config.peers, localStorage:false, radisk:false, file:false, multicast:false, axe:false, retry:2000});
     state.root = state.gun.get(config.appRoot);
     state.gun.on('hi', peer => {
       state.connectedRelays.add(peerName(peer));
+      state.pendingWrites.forEach(pending => {
+        pending.relaySeen = true;
+        pending.retryNow?.();
+      });
       report({online:true, count:state.connectedRelays.size, text:state.pendingWrites.size ? `Connected · confirming ${state.pendingWrites.size} change${state.pendingWrites.size===1?'':'s'}` : state.hydrated.size ? `Connected · live data stream active (${state.hydrated.size} sections read)` : 'Connected · reading live data'});
       setTimeout(() => state.subscriptions.forEach(subscription => hydrateSubscription(subscription, true)), 350);
     });
@@ -192,7 +196,8 @@
     return new Promise(resolve => {
       let settled = false;
       let timer;
-      const reader = Gun({peers:config.peers, localStorage:false, retry:2});
+      let listening = false;
+      const reader = Gun({peers:config.peers, localStorage:false, radisk:false, file:false, multicast:false, axe:false, retry:2});
       const chain = reader.get(config.appRoot).get(collection).get(id);
       const finish = value => {
         if(settled) return;
@@ -203,13 +208,19 @@
         chain.off();
         resolve(true);
       };
+      reader.on('hi', () => {
+        if(listening || settled) return;
+        listening = true;
+        chain.on(finish);
+      });
+      // Prime the lazy transport; the post-handshake listener above performs the authoritative read.
+      chain.once(() => {});
       timer = setTimeout(() => {
         if(settled) return;
         settled = true;
         chain.off();
         resolve(false);
       }, timeout);
-      chain.on(finish);
     });
   }
 
@@ -225,25 +236,39 @@
 
   function confirmRecordWrite(collection, id, payload, pending, attempt=1){
     return new Promise(resolve => {
-      let acknowledged = false;
+      let settled = false;
       const chain = node(collection, id);
-      const verifyTimer = setTimeout(async () => {
-        if(acknowledged) return;
+      const verify = async () => {
+        if(settled) return;
         if(state.pendingWrites.get(`${collection}/${id}`) !== pending) return resolve({ok:true, superseded:true});
+        if(payload === null && pending.relaySeen) {
+          settled = true;
+          return resolve({ok:true, verified:true});
+        }
         const committed = await verifyRelayRevision(collection, id, payload, 6000);
-        if(committed) return resolve({ok:true, verified:true});
-        if(attempt < 3) return resolve(confirmRecordWrite(collection, id, payload, pending, attempt + 1));
+        if(settled) return;
+        if(committed) {
+          settled = true;
+          return resolve({ok:true, verified:true});
+        }
+        if(attempt < 3) {
+          settled = true;
+          return resolve(confirmRecordWrite(collection, id, payload, pending, attempt + 1));
+        }
+        settled = true;
         resolve({ok:false, error:'The service did not verify the saved revision.'});
-      }, attempt === 1 ? 2500 : 4000);
-      chain.put(payload, ack => {
-        if(acknowledged) return;
+      };
+      const verifyTimer = setTimeout(verify, attempt === 1 ? 2500 : 4000);
+      const send = () => chain.put(payload, ack => {
+        if(settled) return;
         if(state.pendingWrites.get(`${collection}/${id}`) !== pending) return resolve({ok:true, superseded:true});
         if(ack?.err) return;
-        if(!pending.hadRelay) return;
-        acknowledged = true;
         clearTimeout(verifyTimer);
-        resolve({ok:true, ack:ack || {}});
+        if(state.connectedRelays.size) pending.relaySeen = true;
+        setTimeout(verify, 120);
       });
+      pending.retryNow = send;
+      send();
     });
   }
 
@@ -254,30 +279,26 @@
     }
     const writeKey = `${collection}/${id}`;
     const startedAt = Date.now();
-    const pending = {collection, id, startedAt, operation:options.operation || 'write', hadRelay};
+    const pending = {collection, id, startedAt, operation:options.operation || 'write', relaySeen:hadRelay};
     state.pendingWrites.set(writeKey, pending);
     if(row) upsertCache(collection, row, id);
     else upsertCache(collection, null, id);
     reportStatus(hadRelay ? 'Connected · saving change' : 'Reconnecting · change awaiting confirmation');
-    confirmRecordWrite(collection, id, payload, pending).then(result => {
-      if(state.pendingWrites.get(writeKey) !== pending) return;
+    return confirmRecordWrite(collection, id, payload, pending).then(result => {
+      if(state.pendingWrites.get(writeKey) !== pending) return {ack:{superseded:true}, row, queued:false, synced:true};
+      if(!result.ok) throw new Error(result.error);
       state.pendingWrites.delete(writeKey);
-      if(result.ok) {
-        repairIndex(collection, id, row, options.removeIndex).catch(() => {});
-        reportStatus('Connected · change confirmed by relay');
-        return;
-      }
-      restoreCache(collection, id, previous);
-      reportStatus(`Database sync error · ${result.error}`);
-      state.listeners.syncError?.({collection, id, error:result.error});
+      repairIndex(collection, id, row, options.removeIndex).catch(() => {});
+      reportStatus('Connected · change confirmed by relay');
+      return {ack:result.ack || {verified:true}, row, queued:false, synced:true};
     }).catch(error => {
-      if(state.pendingWrites.get(writeKey) !== pending) return;
-      state.pendingWrites.delete(writeKey);
+      if(state.pendingWrites.get(writeKey) === pending) state.pendingWrites.delete(writeKey);
       restoreCache(collection, id, previous);
-      reportStatus(`Database sync error · ${error.message || 'write rejected'}`);
-      state.listeners.syncError?.({collection, id, error:error.message || 'write rejected'});
+      const message = error.message || 'write rejected';
+      reportStatus(`Database sync error · ${message}`);
+      state.listeners.syncError?.({collection, id, error:message});
+      throw error;
     });
-    return Promise.resolve({ack:{queued:true}, row, queued:true, synced:false});
   }
 
   function subscribe(collection, callback, options={}){
